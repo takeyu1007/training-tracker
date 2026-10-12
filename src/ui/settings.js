@@ -571,7 +571,7 @@ export function renderSettings() {
       <button type="button" class="settings-accordion-header" aria-expanded="${!isExercisesCollapsed}">
         <div class="accordion-title-wrap">
           <span class="accordion-icon">🏋️</span>
-          <h3 class="card-title">種目マスター＆種目別休憩タイマー (${exerciseTemplates.length})</h3>
+          <h3 class="card-title">種目マスター＆種目別休憩タイマー</h3>
         </div>
         <span class="settings-accordion-chevron">▾</span>
       </button>
@@ -699,7 +699,7 @@ export function renderSettings() {
       <button type="button" class="settings-accordion-header" aria-expanded="${!isRoutinesCollapsed}">
         <div class="accordion-title-wrap">
           <span class="accordion-icon">🍽️</span>
-          <h3 class="card-title">マイルーティン（ワンタップ食事）の管理 (${routines.length})</h3>
+          <h3 class="card-title">マイルーティン（ワンタップ食事）の管理</h3>
         </div>
         <span class="settings-accordion-chevron">▾</span>
       </button>
@@ -741,7 +741,7 @@ export function renderSettings() {
       <button type="button" class="settings-accordion-header" aria-expanded="${!isSupplementsCollapsed}">
         <div class="accordion-title-wrap">
           <span class="accordion-icon">💊</span>
-          <h3 class="card-title">サプリメントチェックリスト管理 (${profile.supplements.length})</h3>
+          <h3 class="card-title">サプリメントチェックリスト管理</h3>
         </div>
         <span class="settings-accordion-chevron">▾</span>
       </button>

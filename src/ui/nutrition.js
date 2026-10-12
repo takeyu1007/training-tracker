@@ -209,7 +209,7 @@ export function renderNutrition() {
       <div class="card-header-flex">
         <div>
           <h3 class="card-title">📊 直近7日間の平均栄養実績</h3>
-          <span class="text-muted text-sm">週平均カロリーと目標PFCのバランス (${weeklyAvg.daysLogged}日記録)</span>
+          <span class="text-muted text-sm">週平均カロリーと目標PFCのバランス</span>
         </div>
         <div class="weekly-avg-badge ${weeklyAvg.avgCalories > profile.targetCalories ? 'is-over' : 'is-under'}">
           ${weeklyAvg.daysLogged > 0 ? `平均 ${weeklyAvg.avgCalories.toLocaleString()} kcal/日` : 'データ収集中'}
@@ -309,7 +309,7 @@ export function renderNutrition() {
 
     <!-- 今日の入力履歴 -->
     <section class="card nutrition-history-card">
-      <h3 class="card-title">本日の摂取内訳 (${daily.logs.length})</h3>
+      <h3 class="card-title">本日の摂取内訳</h3>
       ${
         daily.logs.length === 0
           ? `<p class="empty-hint text-center text-muted">まだ記録がありません。</p>`

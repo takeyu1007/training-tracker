@@ -14,7 +14,6 @@ import {
   calculateWeightPace,
   calculate7DayMovingAverage,
   calculateBig3Total,
-  calculateWeeklyMuscleVolume,
 } from '../calc.js';
 import { escapeHtml, formatDate, formatTime } from '../format.js';
 
@@ -80,9 +79,6 @@ export function renderAnalytics() {
 
   // 2. BIG3 トータル推定MAXスコア
   const big3 = calculateBig3Total(workouts);
-
-  // 3. 週間部位別ボリュームメーター
-  const weeklyVolume = calculateWeeklyMuscleVolume(workouts, exerciseTemplates);
 
   const exerciseNames = exerciseTemplates.map((e) => e.name);
 
@@ -212,42 +208,6 @@ export function renderAnalytics() {
       </div>
     </section>
 
-    <!-- 週間部位別ボリュームメーター (過去7日間) -->
-    <section class="card muscle-volume-card">
-      <div class="card-header-flex">
-        <div>
-          <h3 class="card-title">💪 週間部位別セット数ボリューム (直近7日間)</h3>
-          <span class="text-muted text-sm">筋肥大の推奨ボリューム: 各部位 10〜20セット/週</span>
-        </div>
-      </div>
-
-      <div class="volume-meters-grid mt-3">
-        ${['胸', '背中', '脚', '肩', '腕', '腹']
-          .map((cat) => {
-            const v = weeklyVolume[/** @type {import('../model.js').MuscleCategory} */ (cat)] || { sets: 0, status: 'low' };
-            const percent = Math.min(100, Math.round((v.sets / 20) * 100));
-            const statusLabel = v.status === 'optimal' ? '✨ 最適' : v.status === 'high' ? '🔥 高負荷' : '不足';
-            const statusClass = v.status === 'optimal' ? 'status-optimal' : v.status === 'high' ? 'status-high' : 'status-low';
-
-            return `
-            <div class="volume-meter-row">
-              <div class="volume-meter-info">
-                <span class="font-bold">${cat}</span>
-                <span class="volume-status-tag ${statusClass}">${statusLabel}</span>
-              </div>
-              <div class="volume-meter-track">
-                <div class="volume-meter-fill ${statusClass}" style="width: ${percent}%"></div>
-              </div>
-              <div class="volume-meter-count font-mono text-sm">
-                <strong>${v.sets}</strong> / 20 sets
-              </div>
-            </div>
-          `;
-          })
-          .join('')}
-      </div>
-    </section>
-
     <!-- コンディション警告＆インサイト -->
     <section class="card insights-card">
       <h3 class="card-title">🧠 コンディション相関インサイト</h3>
@@ -289,7 +249,7 @@ export function renderAnalytics() {
 
     <!-- ワークアウト履歴タイムライン -->
     <section class="card history-timeline-card">
-      <h3 class="card-title">📜 ワークアウト履歴 (${workouts.length})</h3>
+      <h3 class="card-title">📜 ワークアウト履歴</h3>
       ${
         workouts.length === 0
           ? `<p class="empty-hint text-center text-muted">まだ完了したセッションはありません。</p>`

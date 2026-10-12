@@ -403,7 +403,7 @@ function handleAddSingleSet() {
     // 種目の休憩時間（またはセット種別の既定）をタイマーで起動
     const template = storeInstance.getExerciseTemplate(exerciseName);
     const restSeconds = Number(restInput?.value) || template?.defaultRestSeconds || storeInstance.getState().profile.defaultRestSeconds[setType] || 120;
-    startTimer(restSeconds, `${exerciseName} 休憩 (${restSeconds}秒)`);
+    startTimer(restSeconds, `${exerciseName} 休憩`);
 
     renderWorkout();
   }
@@ -474,7 +474,7 @@ function handleCompleteSet(setId) {
     // 種目の既定休憩時間でタイマー起動！
     const template = storeInstance.getExerciseTemplate(completed.exerciseName);
     const restSeconds = template?.defaultRestSeconds || storeInstance.getState().profile.defaultRestSeconds[completed.setType] || 120;
-    startTimer(restSeconds, `${completed.exerciseName} 休憩 (${restSeconds}秒)`);
+    startTimer(restSeconds, `${completed.exerciseName} 休憩`);
 
     renderWorkout();
   }
@@ -615,7 +615,7 @@ export function renderWorkout() {
           <label for="input-exercise-name">種目名</label>
           <select id="input-exercise-name" class="input">
             <option value="">種目を選択...</option>
-            ${exerciseTemplates.map((ex) => `<option value="${escapeHtml(ex.name)}">${escapeHtml(ex.name)} (${ex.defaultRestSeconds}s)</option>`).join('')}
+            ${exerciseTemplates.map((ex) => `<option value="${escapeHtml(ex.name)}">${escapeHtml(ex.name)}</option>`).join('')}
           </select>
           <div id="exercise-prev-hint" class="prev-hint" style="display: none;"></div>
           <div id="exercise-overload-suggestion" class="overload-hint" style="display: none;"></div>
@@ -639,19 +639,19 @@ export function renderWorkout() {
           <div class="set-type-radios">
             <label class="set-type-label set-up">
               <input type="radio" name="set-type" value="UP">
-              <span>UP (準備)</span>
+              <span>UP</span>
             </label>
             <label class="set-type-label set-main">
               <input type="radio" name="set-type" value="MAIN" checked>
-              <span>MAIN (基本)</span>
+              <span>MAIN</span>
             </label>
             <label class="set-type-label set-heavy">
               <input type="radio" name="set-type" value="HEAVY">
-              <span>HEAVY (MAX)</span>
+              <span>HEAVY</span>
             </label>
             <label class="set-type-label set-down">
               <input type="radio" name="set-type" value="DOWN">
-              <span>DOWN (調整)</span>
+              <span>DOWN</span>
             </label>
           </div>
         </div>
@@ -711,7 +711,7 @@ export function renderWorkout() {
     <section class="card recorded-sets-card">
       <div class="card-header-flex">
         <div>
-          <h3 class="card-title">セット予実管理 (${activeWorkout.sets.length})</h3>
+          <h3 class="card-title">セット予実管理</h3>
           <span class="text-muted text-sm">予定セットは「✔ 完了」で実測値を確定・タイマー起動</span>
         </div>
         <button type="button" id="btn-finish-workout" class="btn btn-outline-success btn-sm">
