@@ -1255,6 +1255,96 @@ body::after {
   flex-wrap: wrap;
 }
 
+/* Planned sets & Plan-vs-Actual styling */
+.badge-planned {
+  background: hsl(45 95% 53% / 0.15);
+  color: #fde047;
+  border: 1px dashed #facc15;
+}
+
+.set-row.is-planned {
+  opacity: 0.9;
+}
+
+.set-row.is-completed {
+  background: hsl(158 64% 52% / 0.04);
+}
+
+.input-table {
+  width: 76px;
+  padding: 6px 8px;
+  font-size: 15px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logger-buttons-group {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.exercise-rest-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  background: hsl(225 35% 10% / 0.5);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.rest-label {
+  margin-bottom: 0 !important;
+  color: var(--color-text-muted);
+}
+
+.set-count-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.exercise-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.exercise-manager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: hsl(225 35% 10% / 0.6);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.exercise-rest-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.add-exercise-grid {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.display-block { display: block; }
+.justify-center { justify-content: center; }
+.text-left { text-align: left; }
+.mb-3 { margin-bottom: var(--space-3); }
+
 /* Responsive adjustments */
 @media (min-width: 768px) {
   body {

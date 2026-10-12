@@ -4,7 +4,7 @@
  * 頻繁な機能追加や修正が即時反映されるよう、ネットワーク確認を優先する。
  */
 
-const CACHE_VERSION = 'tt-v1';
+const CACHE_VERSION = 'tt-v2';
 const CACHE_NAME = `training-tracker-${CACHE_VERSION}`;
 
 const APP_SHELL = [

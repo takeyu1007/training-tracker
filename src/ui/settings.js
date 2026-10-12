@@ -57,6 +57,39 @@ function bindEvents() {
       return;
     }
 
+    // 種目マスター新規追加
+    if (target.closest('#btn-add-exercise-template')) {
+      const nameInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-new-exercise-name'));
+      const restInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-new-exercise-rest'));
+      const name = nameInput?.value.trim() || '';
+      const rest = Number(restInput?.value) || 120;
+
+      if (!name) {
+        showToast('種目名を入力してください', 'warning');
+        return;
+      }
+      if (storeInstance.addExerciseTemplate(name, rest)) {
+        showToast(`種目「${name}」を追加しました`, 'success');
+        if (nameInput) nameInput.value = '';
+        renderSettings();
+      } else {
+        showToast('既に同名の種目が登録されています', 'warning');
+      }
+      return;
+    }
+
+    // 種目マスター削除
+    const delExBtn = target.closest('.btn-delete-exercise-template');
+    if (delExBtn) {
+      const id = delExBtn.getAttribute('data-exercise-id');
+      if (id) {
+        storeInstance.deleteExerciseTemplate(id);
+        showToast('種目を削除しました', 'info');
+        renderSettings();
+      }
+      return;
+    }
+
     // サプリ追加
     if (target.closest('#btn-add-supplement')) {
       const suppInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-new-supplement'));
@@ -130,9 +163,18 @@ function bindEvents() {
     }
   });
 
-  // ファイルインポート変更
+  // 種目別休憩時間のインライン変更
   container.addEventListener('change', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
+    if (target.classList.contains('input-exercise-template-rest')) {
+      const exId = target.getAttribute('data-exercise-id');
+      const val = Number(/** @type {HTMLInputElement} */ (target).value) || 120;
+      if (exId) {
+        storeInstance.updateExerciseTemplate(exId, { defaultRestSeconds: val });
+        showToast('種目の休憩時間を更新しました', 'success');
+      }
+    }
+
     if (target.id === 'input-file-import') {
       const file = /** @type {HTMLInputElement} */ (target).files?.[0];
       if (file) {
@@ -254,6 +296,7 @@ export function renderSettings() {
   const state = storeInstance.getState();
   const profile = state.profile;
   const routines = state.routines;
+  const exerciseTemplates = state.exerciseTemplates;
 
   container.innerHTML = `
     <!-- プロファイル設定 -->
@@ -336,25 +379,25 @@ export function renderSettings() {
         </div>
       </div>
 
-      <!-- 既定インターバルタイマー設定 -->
+      <!-- セット種別ごとの標準休憩タイマー設定 -->
       <div class="rest-timer-settings">
-        <h4 class="font-bold">既定インターバルタイマー秒数</h4>
+        <h4 class="font-bold">セット種別ごとの標準休憩タイマー (秒)</h4>
         <div class="rest-inputs-grid">
           <div class="form-group">
             <label for="rest-up">UPセット (秒)</label>
-            <input type="number" id="rest-up" class="input" value="${profile.defaultRestSeconds.UP}">
+            <input type="number" id="rest-up" class="input font-mono" value="${profile.defaultRestSeconds.UP}">
           </div>
           <div class="form-group">
             <label for="rest-main">MAINセット (秒)</label>
-            <input type="number" id="rest-main" class="input" value="${profile.defaultRestSeconds.MAIN}">
+            <input type="number" id="rest-main" class="input font-mono" value="${profile.defaultRestSeconds.MAIN}">
           </div>
           <div class="form-group">
             <label for="rest-heavy">HEAVYセット (秒)</label>
-            <input type="number" id="rest-heavy" class="input" value="${profile.defaultRestSeconds.HEAVY}">
+            <input type="number" id="rest-heavy" class="input font-mono" value="${profile.defaultRestSeconds.HEAVY}">
           </div>
           <div class="form-group">
             <label for="rest-down">DOWNセット (秒)</label>
-            <input type="number" id="rest-down" class="input" value="${profile.defaultRestSeconds.DOWN}">
+            <input type="number" id="rest-down" class="input font-mono" value="${profile.defaultRestSeconds.DOWN}">
           </div>
         </div>
       </div>
@@ -362,6 +405,48 @@ export function renderSettings() {
       <button type="button" id="btn-save-profile" class="btn btn-primary btn-large btn-glow mt-4">
         💾 プロファイル設定を保存
       </button>
+    </section>
+
+    <!-- 種目マスター＆種目別休憩タイマー管理 -->
+    <section class="card settings-card">
+      <h3 class="card-title">🏋️ 種目マスター＆種目別休憩タイマー (${exerciseTemplates.length})</h3>
+      <p class="text-muted text-sm mb-3">
+        種目ごとに個別の休憩時間を秒数で設定できます。ワークアウト中に自動適用されます。
+      </p>
+
+      <div class="exercise-manager-list">
+        ${exerciseTemplates
+          .map(
+            (ex) => `
+          <div class="exercise-manager-item">
+            <div class="exercise-info">
+              <span class="font-bold">${escapeHtml(ex.name)}</span>
+            </div>
+            <div class="exercise-rest-control">
+              <span class="text-sm text-muted">休憩:</span>
+              <input type="number" class="input input-sm input-exercise-template-rest font-mono" style="max-width: 80px;" data-exercise-id="${ex.id}" value="${ex.defaultRestSeconds}" min="10" step="5">
+              <span class="text-sm text-muted">秒</span>
+              <button type="button" class="btn-icon btn-delete-exercise-template" data-exercise-id="${ex.id}" title="種目削除">
+                🗑
+              </button>
+            </div>
+          </div>
+        `,
+          )
+          .join('')}
+      </div>
+
+      <div class="add-exercise-form mt-4">
+        <h4 class="font-bold text-sm text-muted">新規種目の追加</h4>
+        <div class="add-exercise-grid mt-2">
+          <input type="text" id="input-new-exercise-name" class="input" placeholder="例: インクラインダンベルフライ">
+          <div class="input-with-unit-inline">
+            <input type="number" id="input-new-exercise-rest" class="input font-mono" style="max-width: 100px;" value="120" min="10" step="5">
+            <span class="text-muted text-sm">秒</span>
+          </div>
+          <button type="button" id="btn-add-exercise-template" class="btn btn-outline-cyan">追加</button>
+        </div>
+      </div>
     </section>
 
     <!-- マイルーティン設定 -->

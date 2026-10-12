@@ -61,13 +61,15 @@ export function renderAnalytics() {
   const insights = analyzeConditionInsights(workouts);
   const exerciseTemplates = state.exerciseTemplates;
 
+  const exerciseNames = exerciseTemplates.map((e) => e.name);
+
   // デフォルト種目の初期化
-  if (!exerciseTemplates.includes(selectedExercise) && exerciseTemplates.length > 0) {
-    selectedExercise = exerciseTemplates[0];
+  if (!exerciseNames.includes(selectedExercise) && exerciseNames.length > 0) {
+    selectedExercise = exerciseNames[0];
   }
 
   // 主要種目のオーバーロード提案
-  const overloadCards = exerciseTemplates.slice(0, 4).map((ex) => {
+  const overloadCards = exerciseNames.slice(0, 4).map((ex) => {
     const sugg = suggestProgressiveOverload(ex, workouts);
     return { exercise: ex, ...sugg };
   });
@@ -81,7 +83,7 @@ export function renderAnalytics() {
           <span class="text-muted text-sm">減量/増量幅と筋出力（推定MAX）の相関を追跡</span>
         </div>
         <select id="chart-exercise-select" class="input input-sm">
-          ${exerciseTemplates.map((ex) => `<option value="${escapeHtml(ex)}" ${ex === selectedExercise ? 'selected' : ''}>${escapeHtml(ex)}</option>`).join('')}
+          ${exerciseNames.map((ex) => `<option value="${escapeHtml(ex)}" ${ex === selectedExercise ? 'selected' : ''}>${escapeHtml(ex)}</option>`).join('')}
         </select>
       </div>
 

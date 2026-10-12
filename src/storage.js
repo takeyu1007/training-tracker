@@ -7,11 +7,17 @@
  * - 読み込めないデータは絶対に黙って捨てない。退避キーに生データを保存してから初期化する。
  */
 
-import { createProfile, DEFAULT_EXERCISES, DEFAULT_SUPPLEMENTS, newId } from './model.js';
+import {
+  createProfile,
+  createExerciseTemplate,
+  DEFAULT_EXERCISES,
+  DEFAULT_SUPPLEMENTS,
+  newId,
+} from './model.js';
 
 export const STORAGE_KEY = 'trainingTracker.data';
 export const BACKUP_KEY_PREFIX = 'trainingTracker.backup.';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * @typedef {Pick<Storage, 'getItem' | 'setItem'>} StorageLike
@@ -58,7 +64,7 @@ export function emptyData() {
         isSupplement: true,
       },
     ],
-    exerciseTemplates: [...DEFAULT_EXERCISES],
+    exerciseTemplates: DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds)),
   };
 }
 
@@ -105,18 +111,45 @@ function normalizeWorkout(w) {
     sets: Array.isArray(w.sets)
       ? w.sets
           .filter(/** @param {any} s */ (s) => s && typeof s === 'object' && typeof s.exerciseName === 'string')
-          .map(/** @param {any} s */ (s) => ({
-            id: typeof s.id === 'string' ? s.id : newId(),
-            exerciseName: s.exerciseName.trim(),
-            weight: Number(s.weight) || 0,
-            reps: Number(s.reps) || 1,
-            setType: ['UP', 'MAIN', 'HEAVY', 'DOWN'].includes(s.setType) ? s.setType : 'MAIN',
-            estimated1rm: Number(s.estimated1rm) || 0,
-            completedAt: typeof s.completedAt === 'string' ? s.completedAt : new Date().toISOString(),
-          }))
+          .map(/** @param {any} s */ (s) => {
+            const isCompleted = s.isCompleted !== undefined ? Boolean(s.isCompleted) : true;
+            const weight = Number(s.weight) || 0;
+            const reps = Number(s.reps) || 1;
+            return {
+              id: typeof s.id === 'string' ? s.id : newId(),
+              exerciseName: s.exerciseName.trim(),
+              weight,
+              reps,
+              setType: ['UP', 'MAIN', 'HEAVY', 'DOWN'].includes(s.setType) ? s.setType : 'MAIN',
+              estimated1rm: Number(s.estimated1rm) || 0,
+              completedAt: typeof s.completedAt === 'string' ? s.completedAt : (isCompleted ? new Date().toISOString() : ''),
+              isCompleted,
+              targetWeight: s.targetWeight !== undefined ? Number(s.targetWeight) : weight,
+              targetReps: s.targetReps !== undefined ? Number(s.targetReps) : reps,
+            };
+          })
       : [],
     notes: typeof w.notes === 'string' ? w.notes : '',
   };
+}
+
+/**
+ * @param {any} e
+ * @returns {import('./model.js').ExerciseTemplate | null}
+ */
+function normalizeExerciseTemplate(e) {
+  if (!e) return null;
+  if (typeof e === 'string' && e.trim().length > 0) {
+    return createExerciseTemplate(e.trim(), 120);
+  }
+  if (typeof e === 'object' && typeof e.name === 'string' && e.name.trim().length > 0) {
+    return {
+      id: typeof e.id === 'string' ? e.id : newId(),
+      name: e.name.trim(),
+      defaultRestSeconds: Math.max(10, Number(e.defaultRestSeconds) || 120),
+    };
+  }
+  return null;
 }
 
 /**
@@ -178,7 +211,31 @@ export function migrate(raw) {
     throw new Error(`unsupported future version: ${raw.version}`);
   }
 
-  const data = raw;
+  let data = raw;
+  // v1 -> v2 移行
+  if (data.version === 1) {
+    data = {
+      ...data,
+      version: 2,
+      exerciseTemplates: (Array.isArray(data.exerciseTemplates) ? data.exerciseTemplates : [])
+        .map(normalizeExerciseTemplate)
+        .filter(/** @param {any} e */ (e) => e !== null),
+      workouts: (Array.isArray(data.workouts) ? data.workouts : []).map(/** @param {any} w */ (w) => ({
+        ...w,
+        sets: (Array.isArray(w?.sets) ? w.sets : []).map(/** @param {any} s */ (s) => ({
+          ...s,
+          isCompleted: true,
+          targetWeight: Number(s?.weight) || 0,
+          targetReps: Number(s?.reps) || 1,
+        })),
+      })),
+    };
+  }
+
+  const rawTemplates = Array.isArray(data.exerciseTemplates) && data.exerciseTemplates.length > 0
+    ? data.exerciseTemplates
+    : DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds));
+
   return {
     version: SCHEMA_VERSION,
     profile: normalizeProfile(data.profile),
@@ -191,9 +248,9 @@ export function migrate(raw) {
     routines: (Array.isArray(data.routines) ? data.routines : [])
       .map(normalizeRoutine)
       .filter(/** @param {import('./model.js').RoutineItem | null} r @returns {r is import('./model.js').RoutineItem} */ (r) => r !== null),
-    exerciseTemplates: Array.isArray(data.exerciseTemplates) && data.exerciseTemplates.length > 0
-      ? data.exerciseTemplates.filter(/** @param {any} e */ (e) => typeof e === 'string' && e.trim().length > 0)
-      : [...DEFAULT_EXERCISES],
+    exerciseTemplates: rawTemplates
+      .map(normalizeExerciseTemplate)
+      .filter(/** @param {import('./model.js').ExerciseTemplate | null} e @returns {e is import('./model.js').ExerciseTemplate} */ (e) => e !== null),
   };
 }
 

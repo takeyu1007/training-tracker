@@ -105,3 +105,101 @@ test('store: JSON export and import restores complete state', () => {
   assert.equal(ok, true);
   assert.equal(store2.getState().profile.name, 'インポート検証');
 });
+
+test('storage: migrate v1 data to v2 with exercise templates and planned sets', () => {
+  const v1Data = {
+    version: 1,
+    profile: {
+      name: 'v1ユーザー',
+      height: 170,
+      currentWeight: 65,
+      targetWeight: 60,
+      targetDate: '',
+      gender: 'male',
+      age: 25,
+      goalType: 'cut',
+      activityLevel: 'moderate',
+      targetCalories: 2000,
+      targetP: 130,
+      targetF: 45,
+      targetC: 220,
+      supplements: ['クレアチン'],
+      defaultRestSeconds: { UP: 60, MAIN: 120, HEAVY: 180, DOWN: 60 },
+    },
+    workouts: [
+      {
+        id: 'w1',
+        date: '2026-10-10',
+        startTime: '2026-10-10T10:00:00Z',
+        endTime: null,
+        bodyWeight: 65,
+        sleepCategory: '7h+',
+        preWorkoutCarb: true,
+        conditionScore: 4,
+        sets: [
+          {
+            id: 's1',
+            exerciseName: 'ベンチプレス',
+            weight: 70,
+            reps: 10,
+            setType: 'MAIN',
+            estimated1rm: 93.3,
+            completedAt: '2026-10-10T10:05:00Z',
+          },
+        ],
+        notes: '',
+      },
+    ],
+    dailyNutrition: [],
+    routines: [],
+    exerciseTemplates: ['ベンチプレス', 'スクワット'],
+  };
+
+  const migrated = migrate(v1Data);
+  assert.equal(migrated.version, 2);
+  // exerciseTemplates should now be objects with defaultRestSeconds
+  assert.equal(migrated.exerciseTemplates.length, 2);
+  assert.equal(migrated.exerciseTemplates[0].name, 'ベンチプレス');
+  assert.ok(migrated.exerciseTemplates[0].defaultRestSeconds > 0);
+  // sets should have isCompleted: true
+  assert.equal(migrated.workouts[0].sets[0].isCompleted, true);
+  assert.equal(migrated.workouts[0].sets[0].targetWeight, 70);
+  assert.equal(migrated.workouts[0].sets[0].targetReps, 10);
+});
+
+test('store: addPlannedSets, completeSet, uncompleteSet and custom exercise rest times', () => {
+  const storage = createMemoryStorage();
+  const store = createStore(storage);
+
+  const session = store.addWorkout({ date: '2026-10-12' });
+
+  // 1. 3セットを一括予約
+  const planned = store.addPlannedSets(session.id, {
+    exerciseName: 'スクワット',
+    weight: 100,
+    reps: 8,
+    count: 3,
+    setType: 'MAIN',
+  });
+  assert.equal(planned.length, 3);
+  assert.equal(planned[0].isCompleted, false);
+  assert.equal(planned[0].targetWeight, 100);
+  assert.equal(planned[0].targetReps, 8);
+
+  // 2. 1セット目を実績完了
+  const completed = store.completeSet(session.id, planned[0].id, 100, 10);
+  assert.ok(completed);
+  assert.equal(completed.isCompleted, true);
+  assert.equal(completed.reps, 10);
+  assert.equal(completed.estimated1rm, 133.3);
+
+  // 3. 種目ごとの休憩時間の追加・取得
+  const addedTemplate = store.addExerciseTemplate('ヒップスラスト', 180);
+  assert.ok(addedTemplate);
+  assert.equal(addedTemplate.name, 'ヒップスラスト');
+  assert.equal(addedTemplate.defaultRestSeconds, 180);
+
+  const found = store.getExerciseTemplate('ヒップスラスト');
+  assert.ok(found);
+  assert.equal(found.defaultRestSeconds, 180);
+});

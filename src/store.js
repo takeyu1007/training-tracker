@@ -10,6 +10,7 @@ import {
   createWorkoutSet,
   createDailyNutrition,
   createRoutineItem,
+  createExerciseTemplate,
   newId,
 } from './model.js';
 import { calculate1RM } from './calc.js';
@@ -20,6 +21,7 @@ import { load, save, emptyData } from './storage.js';
 /** @typedef {import('./model.js').WorkoutSet} WorkoutSet */
 /** @typedef {import('./model.js').DailyNutrition} DailyNutrition */
 /** @typedef {import('./model.js').UserProfile} UserProfile */
+/** @typedef {import('./model.js').ExerciseTemplate} ExerciseTemplate */
 /** @typedef {import('./storage.js').StorageLike} StorageLike */
 
 /**
@@ -128,7 +130,7 @@ export function createStore(storage, options = {}) {
     },
 
     /**
-     * ワークアウトにセットを追加（推定1RMは自動計算）
+     * ワークアウトに1セットを追加
      * @param {string} workoutId
      * @param {Partial<WorkoutSet> & { exerciseName: string, weight: number, reps: number }} setInput
      * @returns {WorkoutSet | undefined}
@@ -137,8 +139,9 @@ export function createStore(storage, options = {}) {
       const workout = state.workouts.find((w) => w.id === workoutId);
       if (!workout) return undefined;
 
-      const est1rm = calculate1RM(setInput.weight, setInput.reps);
-      const set = createWorkoutSet(setInput, est1rm);
+      const isCompleted = setInput.isCompleted !== undefined ? setInput.isCompleted : true;
+      const est1rm = isCompleted ? calculate1RM(setInput.weight, setInput.reps) : 0;
+      const set = createWorkoutSet({ ...setInput, isCompleted }, est1rm);
 
       state = {
         ...state,
@@ -148,6 +151,144 @@ export function createStore(storage, options = {}) {
       };
       commit();
       return set;
+    },
+
+    /**
+     * 予定セットを一括追加（予実管理用: 例 ベンチ70kg*10回*3セットを一括登録）
+     * @param {string} workoutId
+     * @param {{ exerciseName: string, weight: number, reps: number, count: number, setType?: import('./model.js').SetType }} input
+     * @returns {WorkoutSet[]} 追加されたセット一覧
+     */
+    addPlannedSets(workoutId, input) {
+      const workout = state.workouts.find((w) => w.id === workoutId);
+      if (!workout) return [];
+
+      const count = Math.max(1, Math.min(20, Math.round(Number(input.count) || 1)));
+      const weight = Math.max(0, Number(input.weight) || 0);
+      const reps = Math.max(1, Math.round(Number(input.reps) || 1));
+      const setType = input.setType || 'MAIN';
+
+      /** @type {WorkoutSet[]} */
+      const newSets = [];
+      for (let i = 0; i < count; i++) {
+        newSets.push(
+          createWorkoutSet({
+            exerciseName: input.exerciseName,
+            weight,
+            reps,
+            targetWeight: weight,
+            targetReps: reps,
+            setType,
+            isCompleted: false,
+          }, 0),
+        );
+      }
+
+      state = {
+        ...state,
+        workouts: state.workouts.map((w) =>
+          w.id === workoutId ? { ...w, sets: [...w.sets, ...newSets] } : w,
+        ),
+      };
+      commit();
+      return newSets;
+    },
+
+    /**
+     * 予定セットの実績完了（重量・回数の実測値を受け取り完了化）
+     * @param {string} workoutId
+     * @param {string} setId
+     * @param {number} [actualWeight]
+     * @param {number} [actualReps]
+     * @returns {WorkoutSet | undefined}
+     */
+    completeSet(workoutId, setId, actualWeight, actualReps) {
+      const workout = state.workouts.find((w) => w.id === workoutId);
+      if (!workout) return undefined;
+
+      let completedSet;
+      const updatedSets = workout.sets.map((s) => {
+        if (s.id !== setId) return s;
+        const finalWeight = actualWeight !== undefined ? Math.max(0, Number(actualWeight)) : s.weight;
+        const finalReps = actualReps !== undefined ? Math.max(1, Math.round(Number(actualReps))) : s.reps;
+        const est1rm = calculate1RM(finalWeight, finalReps);
+
+        completedSet = {
+          ...s,
+          weight: finalWeight,
+          reps: finalReps,
+          estimated1rm: est1rm,
+          isCompleted: true,
+          completedAt: now().toISOString(),
+        };
+        return completedSet;
+      });
+
+      state = {
+        ...state,
+        workouts: state.workouts.map((w) => (w.id === workoutId ? { ...w, sets: updatedSets } : w)),
+      };
+      commit();
+      return completedSet;
+    },
+
+    /**
+     * 完了セットを未完了（予定）に戻す
+     * @param {string} workoutId
+     * @param {string} setId
+     */
+    uncompleteSet(workoutId, setId) {
+      const workout = state.workouts.find((w) => w.id === workoutId);
+      if (!workout) return;
+
+      const updatedSets = workout.sets.map((s) => {
+        if (s.id !== setId) return s;
+        return {
+          ...s,
+          isCompleted: false,
+          estimated1rm: 0,
+          completedAt: '',
+        };
+      });
+
+      state = {
+        ...state,
+        workouts: state.workouts.map((w) => (w.id === workoutId ? { ...w, sets: updatedSets } : w)),
+      };
+      commit();
+    },
+
+    /**
+     * セットの編集
+     * @param {string} workoutId
+     * @param {string} setId
+     * @param {Partial<WorkoutSet>} patch
+     */
+    updateSet(workoutId, setId, patch) {
+      const workout = state.workouts.find((w) => w.id === workoutId);
+      if (!workout) return;
+
+      const updatedSets = workout.sets.map((s) => {
+        if (s.id !== setId) return s;
+        const w = patch.weight !== undefined ? Number(patch.weight) : s.weight;
+        const r = patch.reps !== undefined ? Number(patch.reps) : s.reps;
+        const isComp = patch.isCompleted !== undefined ? Boolean(patch.isCompleted) : s.isCompleted;
+        const est1rm = isComp ? calculate1RM(w, r) : 0;
+        return {
+          ...s,
+          ...patch,
+          weight: w,
+          reps: r,
+          isCompleted: isComp,
+          estimated1rm: est1rm,
+        };
+      });
+
+      state = {
+        ...state,
+        workouts: state.workouts.map((w) => (w.id === workoutId ? { ...w, sets: updatedSets } : w)),
+      };
+      commit();
     },
 
     /**
@@ -165,22 +306,95 @@ export function createStore(storage, options = {}) {
     },
 
     /**
-     * 指定種目の前回記録（重量、回数、セット種別）を取得する（クイック初期値用）
+     * 指定種目の前回完了記録（重量、回数、セット種別）を取得する（クイック初期値用）
      * @param {string} exerciseName
      * @returns {WorkoutSet | null}
      */
     getPreviousSetValues(exerciseName) {
       if (!exerciseName) return null;
-      // 過去のセッションから最新のセットを逆順探索
       for (const w of state.workouts) {
         for (let i = w.sets.length - 1; i >= 0; i--) {
           const s = w.sets[i];
-          if (s.exerciseName.trim().toLowerCase() === exerciseName.trim().toLowerCase()) {
+          if (
+            s.exerciseName.trim().toLowerCase() === exerciseName.trim().toLowerCase() &&
+            s.isCompleted !== false
+          ) {
             return s;
           }
         }
       }
       return null;
+    },
+
+    // --- 種目マスター（種目別の既定休憩タイマー対応） ---
+    /**
+     * 種目の取得
+     * @param {string} nameOrId
+     * @returns {ExerciseTemplate | undefined}
+     */
+    getExerciseTemplate(nameOrId) {
+      const clean = (nameOrId || '').trim().toLowerCase();
+      return state.exerciseTemplates.find(
+        (e) => e.id === nameOrId || e.name.toLowerCase() === clean,
+      );
+    },
+
+    /**
+     * 種目の追加
+     * @param {string} name
+     * @param {number} [defaultRestSeconds]
+     * @returns {ExerciseTemplate | null}
+     */
+    addExerciseTemplate(name, defaultRestSeconds = 120) {
+      const clean = name.trim();
+      if (!clean) return null;
+      const exists = state.exerciseTemplates.some(
+        (e) => e.name.toLowerCase() === clean.toLowerCase(),
+      );
+      if (exists) return null;
+
+      const template = createExerciseTemplate(clean, defaultRestSeconds);
+      state = {
+        ...state,
+        exerciseTemplates: [...state.exerciseTemplates, template],
+      };
+      commit();
+      return template;
+    },
+
+    /**
+     * 種目の更新（休憩時間や名称の変更）
+     * @param {string} id
+     * @param {Partial<ExerciseTemplate>} patch
+     */
+    updateExerciseTemplate(id, patch) {
+      state = {
+        ...state,
+        exerciseTemplates: state.exerciseTemplates.map((e) =>
+          e.id === id
+            ? {
+                ...e,
+                ...patch,
+                name: patch.name !== undefined ? patch.name.trim() : e.name,
+                defaultRestSeconds:
+                  patch.defaultRestSeconds !== undefined
+                    ? Math.max(10, Number(patch.defaultRestSeconds))
+                    : e.defaultRestSeconds,
+              }
+            : e,
+        ),
+      };
+      commit();
+    },
+
+    /** @param {string} id */
+    deleteExerciseTemplate(id) {
+      state = {
+        ...state,
+        exerciseTemplates: state.exerciseTemplates.filter((e) => e.id !== id),
+      };
+      commit();
+      return true;
     },
 
     // --- PFC・栄養管理 ---
@@ -337,30 +551,6 @@ export function createStore(storage, options = {}) {
         routines: state.routines.filter((r) => r.id !== id),
       };
       commit();
-    },
-
-    // --- 種目マスター ---
-    /** @param {string} name */
-    addExerciseTemplate(name) {
-      const clean = name.trim();
-      if (!clean || state.exerciseTemplates.includes(clean)) return false;
-      state = {
-        ...state,
-        exerciseTemplates: [...state.exerciseTemplates, clean],
-      };
-      commit();
-      return true;
-    },
-
-    /** @param {string} name */
-    deleteExerciseTemplate(name) {
-      if (!state.exerciseTemplates.includes(name)) return false;
-      state = {
-        ...state,
-        exerciseTemplates: state.exerciseTemplates.filter((e) => e !== name),
-      };
-      commit();
-      return true;
     },
 
     // --- 永続化・バックアップ ---

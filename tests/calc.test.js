@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   calculate1RM,
   calculateSessionVolume,
+  calculatePlannedVolume,
   calculateBMR,
   calculateTDEE,
   calculateTargetPFC,
@@ -30,17 +31,20 @@ test('calculate1RM: Epley formula accuracy and edge cases', () => {
   assert.equal(calculate1RM(-50, 5), 0);
 });
 
-test('calculateSessionVolume: computes sum of weight * reps', () => {
+test('calculateSessionVolume and calculatePlannedVolume: respects isCompleted', () => {
   const sets = [
-    { weight: 60, reps: 10, setType: 'UP' },
-    { weight: 100, reps: 8, setType: 'MAIN' },
-    { weight: 100, reps: 7, setType: 'MAIN' },
-    { weight: 90, reps: 10, setType: 'DOWN' },
+    { weight: 60, reps: 10, setType: 'UP', isCompleted: true },
+    { weight: 100, reps: 8, setType: 'MAIN', isCompleted: true },
+    { weight: 100, reps: 8, targetWeight: 100, targetReps: 8, setType: 'MAIN', isCompleted: false }, // planned
+    { weight: 100, reps: 8, targetWeight: 100, targetReps: 8, setType: 'MAIN', isCompleted: false }, // planned
   ];
-  // 60*10 + 100*8 + 100*7 + 90*10 = 600 + 800 + 700 + 900 = 3000
-  assert.equal(calculateSessionVolume(sets, true), 3000);
-  // exclude warmup: 800 + 700 + 900 = 2400
-  assert.equal(calculateSessionVolume(sets, false), 2400);
+  // 実績 (完了済み): 60*10 + 100*8 = 600 + 800 = 1400
+  assert.equal(calculateSessionVolume(sets, true), 1400);
+  // 実績 (UP除外): 800
+  assert.equal(calculateSessionVolume(sets, false), 800);
+
+  // 計画全体 (UP含む): 600 + 800 + 800 + 800 = 3000
+  assert.equal(calculatePlannedVolume(sets, true), 3000);
 });
 
 test('calculateBMR and calculateTDEE: Mifflin-St Jeor formula', () => {

@@ -35,17 +35,34 @@ export function calculate1RM(weight, reps, formula = 'epley') {
 }
 
 /**
- * セットリストから総ボリューム（重量 × 回数）を計算
- * @param {Array<{ weight: number, reps: number, setType?: string }>} sets
+ * セットリストから実績総ボリューム（重量 × 回数）を計算（完了済みセットのみ対象）
+ * @param {Array<{ weight: number, reps: number, setType?: string, isCompleted?: boolean }>} sets
  * @param {boolean} [includeWarmup] UPセットを含めるか
- * @returns {number} 総ボリューム (kg)
+ * @returns {number} 実績総ボリューム (kg)
  */
 export function calculateSessionVolume(sets, includeWarmup = true) {
   if (!Array.isArray(sets)) return 0;
   return sets.reduce((sum, s) => {
+    if (s.isCompleted === false) return sum;
     if (!includeWarmup && s.setType === 'UP') return sum;
     const w = Number(s.weight) || 0;
     const r = Number(s.reps) || 0;
+    return sum + (w > 0 && r > 0 ? w * r : 0);
+  }, 0);
+}
+
+/**
+ * セットリストから計画総ボリューム（予定重量 × 予定回数）を計算
+ * @param {Array<{ weight?: number, reps?: number, targetWeight?: number, targetReps?: number, setType?: string }>} sets
+ * @param {boolean} [includeWarmup]
+ * @returns {number} 計画総ボリューム (kg)
+ */
+export function calculatePlannedVolume(sets, includeWarmup = true) {
+  if (!Array.isArray(sets)) return 0;
+  return sets.reduce((sum, s) => {
+    if (!includeWarmup && s.setType === 'UP') return sum;
+    const w = Number(s.targetWeight !== undefined ? s.targetWeight : s.weight) || 0;
+    const r = Number(s.targetReps !== undefined ? s.targetReps : s.reps) || 0;
     return sum + (w > 0 && r > 0 ? w * r : 0);
   }, 0);
 }
@@ -183,9 +200,9 @@ export function suggestProgressiveOverload(exerciseName, workouts, targetReps = 
     return { shouldIncrease: false, currentWeight: 0, suggestedWeight: 0, message: '' };
   }
 
-  // メインまたは高重量セットを抽出
+  // メインまたは高重量セットを抽出（完了済みのみ）
   const mainSets = recent.sets.filter(
-    (s) => s.exerciseName === exerciseName && (s.setType === 'MAIN' || s.setType === 'HEAVY'),
+    (s) => s.exerciseName === exerciseName && (s.setType === 'MAIN' || s.setType === 'HEAVY') && s.isCompleted !== false,
   );
 
   if (mainSets.length === 0) {
@@ -240,7 +257,7 @@ export function analyzeConditionInsights(workouts) {
   const goodSleepSessions = [];  // >=6h ('6-7h', '7h+')
 
   workouts.forEach((w) => {
-    const mainSets = w.sets.filter((s) => s.setType === 'MAIN' || s.setType === 'HEAVY');
+    const mainSets = w.sets.filter((s) => (s.setType === 'MAIN' || s.setType === 'HEAVY') && s.isCompleted !== false);
     if (mainSets.length === 0) return;
     const avg1rm = mainSets.reduce((sum, s) => sum + s.estimated1rm, 0) / mainSets.length;
     if (w.sleepCategory === '<5h' || w.sleepCategory === '5-6h') {

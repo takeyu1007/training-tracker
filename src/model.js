@@ -31,15 +31,18 @@
  */
 
 /**
- * トレーニングの1セット
+ * トレーニングの1セット（予実管理対応）
  * @typedef {Object} WorkoutSet
  * @property {string} id
  * @property {string} exerciseName
- * @property {number} weight                 重量 (kg)
- * @property {number} reps                   回数
+ * @property {number} weight                 実績重量 (kg)
+ * @property {number} reps                   実績回数
  * @property {SetType} setType               UP / MAIN / HEAVY / DOWN
  * @property {number} estimated1rm           推定1RM (kg)
  * @property {string} completedAt            完了時刻 (ISO 8601)
+ * @property {boolean} isCompleted           完了済みかどうか (false: 予定/未実施, true: 実施完了)
+ * @property {number} [targetWeight]         予定重量 (kg)
+ * @property {number} [targetReps]           予定回数
  */
 
 /**
@@ -55,6 +58,14 @@
  * @property {number} conditionScore         主観的コンディション (1〜5)
  * @property {WorkoutSet[]} sets             実施セット一覧
  * @property {string} notes                  メモ・所感
+ */
+
+/**
+ * 種目マスター（種目別の既定休憩時間を含む）
+ * @typedef {Object} ExerciseTemplate
+ * @property {string} id
+ * @property {string} name                   種目名
+ * @property {number} defaultRestSeconds     この種目の既定休憩時間（秒）
  */
 
 /**
@@ -92,27 +103,27 @@
  */
 
 /**
- * 保存データ全体 (Schema v1)
+ * 保存データ全体 (Schema v2)
  * @typedef {Object} AppData
  * @property {number} version
  * @property {UserProfile} profile
  * @property {WorkoutSession[]} workouts
  * @property {DailyNutrition[]} dailyNutrition
  * @property {RoutineItem[]} routines
- * @property {string[]} exerciseTemplates
+ * @property {ExerciseTemplate[]} exerciseTemplates
  */
 
 export const DEFAULT_EXERCISES = Object.freeze([
-  'ベンチプレス',
-  'スクワット',
-  'デッドリフト',
-  'ショルダープレス',
-  '懸垂 (チンニング)',
-  'バーベルベントオーバーロー',
-  'インクラインダンベルプレス',
-  'ダンベルサイドレイズ',
-  'アームカール',
-  'ディップス',
+  { name: 'ベンチプレス', defaultRestSeconds: 150 },
+  { name: 'スクワット', defaultRestSeconds: 180 },
+  { name: 'デッドリフト', defaultRestSeconds: 180 },
+  { name: 'ショルダープレス', defaultRestSeconds: 120 },
+  { name: '懸垂 (チンニング)', defaultRestSeconds: 120 },
+  { name: 'バーベルベントオーバーロー', defaultRestSeconds: 120 },
+  { name: 'インクラインダンベルプレス', defaultRestSeconds: 120 },
+  { name: 'ダンベルサイドレイズ', defaultRestSeconds: 60 },
+  { name: 'アームカール', defaultRestSeconds: 60 },
+  { name: 'ディップス', defaultRestSeconds: 90 },
 ]);
 
 export const DEFAULT_SUPPLEMENTS = Object.freeze([
@@ -129,6 +140,19 @@ export function newId() {
     return crypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * @param {string} name
+ * @param {number} [defaultRestSeconds]
+ * @returns {ExerciseTemplate}
+ */
+export function createExerciseTemplate(name, defaultRestSeconds = 120) {
+  return {
+    id: newId(),
+    name: name.trim(),
+    defaultRestSeconds: Math.max(10, Number(defaultRestSeconds) || 120),
+  };
 }
 
 /**
@@ -186,14 +210,20 @@ export function createRoutineItem(input) {
  * @returns {WorkoutSet}
  */
 export function createWorkoutSet(input, estimated1rm = 0) {
+  const isCompleted = input.isCompleted !== undefined ? Boolean(input.isCompleted) : true;
+  const weight = Math.max(0, Number(input.weight) || 0);
+  const reps = Math.max(1, Math.round(Number(input.reps) || 1));
   return {
     id: newId(),
     exerciseName: input.exerciseName.trim(),
-    weight: Math.max(0, Number(input.weight) || 0),
-    reps: Math.max(1, Math.round(Number(input.reps) || 1)),
+    weight,
+    reps,
     setType: ['UP', 'MAIN', 'HEAVY', 'DOWN'].includes(input.setType || '') ? /** @type {SetType} */ (input.setType) : 'MAIN',
     estimated1rm: Math.max(0, Number(estimated1rm) || 0),
-    completedAt: input.completedAt || new Date().toISOString(),
+    completedAt: input.completedAt || (isCompleted ? new Date().toISOString() : ''),
+    isCompleted,
+    targetWeight: input.targetWeight !== undefined ? Number(input.targetWeight) : weight,
+    targetReps: input.targetReps !== undefined ? Number(input.targetReps) : reps,
   };
 }
 
