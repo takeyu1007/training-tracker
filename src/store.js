@@ -344,9 +344,10 @@ export function createStore(storage, options = {}) {
      * @param {string} name
      * @param {number} [defaultRestSeconds]
      * @param {import('./model.js').MuscleCategory} [category]
+     * @param {Partial<Record<import('./model.js').SetType, number>>} [restSeconds]
      * @returns {ExerciseTemplate | null}
      */
-    addExerciseTemplate(name, defaultRestSeconds = 120, category = 'その他') {
+    addExerciseTemplate(name, defaultRestSeconds = 120, category = 'その他', restSeconds = undefined) {
       const clean = name.trim();
       if (!clean) return null;
       const exists = state.exerciseTemplates.some(
@@ -354,7 +355,12 @@ export function createStore(storage, options = {}) {
       );
       if (exists) return null;
 
-      const template = createExerciseTemplate(clean, defaultRestSeconds, category);
+      const template = createExerciseTemplate(
+        clean,
+        defaultRestSeconds,
+        category,
+        restSeconds || state.profile.defaultRestSeconds,
+      );
       state = {
         ...state,
         exerciseTemplates: [...state.exerciseTemplates, template],
@@ -371,19 +377,47 @@ export function createStore(storage, options = {}) {
     updateExerciseTemplate(id, patch) {
       state = {
         ...state,
-        exerciseTemplates: state.exerciseTemplates.map((e) =>
-          e.id === id
-            ? {
-                ...e,
-                ...patch,
-                name: patch.name !== undefined ? patch.name.trim() : e.name,
-                defaultRestSeconds:
-                  patch.defaultRestSeconds !== undefined
-                    ? Math.max(10, Number(patch.defaultRestSeconds))
-                    : e.defaultRestSeconds,
-              }
-            : e,
-        ),
+        exerciseTemplates: state.exerciseTemplates.map((e) => {
+          if (e.id !== id) return e;
+          const mergedRest = patch.restSeconds ? { ...(e.restSeconds || {}), ...patch.restSeconds } : e.restSeconds;
+          let defRest = e.defaultRestSeconds;
+          if (patch.defaultRestSeconds !== undefined) {
+            defRest = Math.max(10, Number(patch.defaultRestSeconds));
+          } else if (patch.restSeconds?.MAIN !== undefined) {
+            defRest = Math.max(10, Number(patch.restSeconds.MAIN));
+          }
+          return {
+            ...e,
+            ...patch,
+            name: patch.name !== undefined ? patch.name.trim() : e.name,
+            defaultRestSeconds: defRest,
+            restSeconds: mergedRest,
+          };
+        }),
+      };
+      commit();
+    },
+
+    /**
+     * 全種目への標準休憩タイマー一括反映
+     * @param {Record<import('./model.js').SetType, number>} restSeconds
+     */
+    batchUpdateExerciseRestSeconds(restSeconds) {
+      state = {
+        ...state,
+        exerciseTemplates: state.exerciseTemplates.map((e) => {
+          const mainSec = Math.max(10, Number(restSeconds.MAIN) || 120);
+          return {
+            ...e,
+            defaultRestSeconds: mainSec,
+            restSeconds: {
+              UP: Math.max(10, Number(restSeconds.UP) || 60),
+              MAIN: mainSec,
+              HEAVY: Math.max(10, Number(restSeconds.HEAVY) || 180),
+              DOWN: Math.max(10, Number(restSeconds.DOWN) || 60),
+            },
+          };
+        }),
       };
       commit();
     },

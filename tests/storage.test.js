@@ -207,3 +207,50 @@ test('store: addPlannedSets, completeSet, uncompleteSet and custom exercise rest
   assert.equal(found.defaultRestSeconds, 180);
   assert.equal(found.category, '脚');
 });
+
+test('store: per-exercise restSeconds customization and batchUpdateExerciseRestSeconds', () => {
+  const storage = createMemoryStorage();
+  const store = createStore(storage);
+
+  // 1. 個別種目のセット種別ごとの休憩秒数の更新
+  const bench = store.getExerciseTemplate('ベンチプレス');
+  assert.ok(bench);
+  store.updateExerciseTemplate(bench.id, {
+    restSeconds: { UP: 45, MAIN: 150, HEAVY: 240, DOWN: 60 },
+  });
+
+  const updatedBench = store.getExerciseTemplate('ベンチプレス');
+  assert.ok(updatedBench);
+  assert.equal(updatedBench.restSeconds?.UP, 45);
+  assert.equal(updatedBench.restSeconds?.MAIN, 150);
+  assert.equal(updatedBench.restSeconds?.HEAVY, 240);
+  assert.equal(updatedBench.restSeconds?.DOWN, 60);
+  assert.equal(updatedBench.defaultRestSeconds, 150); // MAINに同期
+
+  // 2. 一括反映 (batchUpdateExerciseRestSeconds)
+  store.batchUpdateExerciseRestSeconds({
+    UP: 50,
+    MAIN: 110,
+    HEAVY: 200,
+    DOWN: 50,
+  });
+
+  const allTemplates = store.getState().exerciseTemplates;
+  for (const t of allTemplates) {
+    assert.equal(t.restSeconds?.UP, 50);
+    assert.equal(t.restSeconds?.MAIN, 110);
+    assert.equal(t.restSeconds?.HEAVY, 200);
+    assert.equal(t.restSeconds?.DOWN, 50);
+    assert.equal(t.defaultRestSeconds, 110);
+  }
+
+  // 3. ストレージ再読み込み（リロード時永続化検証）
+  const storeReloaded = createStore(storage);
+  const benchReloaded = storeReloaded.getExerciseTemplate('ベンチプレス');
+  assert.ok(benchReloaded);
+  assert.equal(benchReloaded.restSeconds?.UP, 50);
+  assert.equal(benchReloaded.restSeconds?.MAIN, 110);
+  assert.equal(benchReloaded.restSeconds?.HEAVY, 200);
+  assert.equal(benchReloaded.restSeconds?.DOWN, 50);
+});
+

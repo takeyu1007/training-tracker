@@ -63,12 +63,13 @@
  */
 
 /**
- * 種目マスター（種目別の部位カテゴリおよび既定休憩時間を含む）
+ * 種目マスター（種目別の部位カテゴリおよびセット種別ごとの休憩時間を含む）
  * @typedef {Object} ExerciseTemplate
  * @property {string} id
  * @property {string} name                   種目名
  * @property {MuscleCategory} category       部位カテゴリ
- * @property {number} defaultRestSeconds     この種目の既定休憩時間（秒）
+ * @property {number} defaultRestSeconds     この種目の既定休憩時間（秒 / MAINセット相当）
+ * @property {Record<SetType, number>} [restSeconds] セット種別ごとの個別休憩時間（秒）
  */
 
 /**
@@ -150,16 +151,24 @@ export function newId() {
  * @param {string} name
  * @param {number} [defaultRestSeconds]
  * @param {MuscleCategory} [category]
+ * @param {Partial<Record<SetType, number>>} [restSeconds]
  * @returns {ExerciseTemplate}
  */
-export function createExerciseTemplate(name, defaultRestSeconds = 120, category = 'その他') {
+export function createExerciseTemplate(name, defaultRestSeconds = 120, category = 'その他', restSeconds) {
   const validCategories = ['胸', '背中', '脚', '肩', '腕', '腹', 'その他'];
   const cat = validCategories.includes(category) ? category : 'その他';
+  const mainSec = Math.max(10, Number(defaultRestSeconds) || 120);
   return {
     id: newId(),
     name: name.trim(),
     category: cat,
-    defaultRestSeconds: Math.max(10, Number(defaultRestSeconds) || 120),
+    defaultRestSeconds: mainSec,
+    restSeconds: {
+      UP: Math.max(10, Number(restSeconds?.UP) || 60),
+      MAIN: Math.max(10, Number(restSeconds?.MAIN) || mainSec),
+      HEAVY: Math.max(10, Number(restSeconds?.HEAVY) || Math.max(mainSec, 180)),
+      DOWN: Math.max(10, Number(restSeconds?.DOWN) || 60),
+    },
   };
 }
 

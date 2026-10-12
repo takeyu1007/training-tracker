@@ -11,6 +11,9 @@ import { showToast } from './toast.js';
 let storeInstance;
 let isResetArmed = false;
 
+/** @type {Set<string>} */
+const collapsedSections = new Set();
+
 /** @type {any} */
 let pendingProfilePayload = null;
 /** @type {any} */
@@ -122,6 +125,40 @@ function bindEvents() {
   container.addEventListener('click', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
 
+    // アコーディオン折りたたみトグル
+    const accordionHeader = target.closest('.settings-accordion-header');
+    if (accordionHeader) {
+      const card = accordionHeader.closest('.settings-accordion-card');
+      const sectionId = card?.getAttribute('data-section-id');
+      if (card && sectionId) {
+        if (collapsedSections.has(sectionId)) {
+          collapsedSections.delete(sectionId);
+          card.classList.remove('is-collapsed');
+          accordionHeader.setAttribute('aria-expanded', 'true');
+        } else {
+          collapsedSections.add(sectionId);
+          card.classList.add('is-collapsed');
+          accordionHeader.setAttribute('aria-expanded', 'false');
+        }
+      }
+      return;
+    }
+
+    // 全種目へ標準休憩タイマーを一括反映
+    if (target.closest('#btn-batch-apply-rest')) {
+      const up = Math.max(5, Number(/** @type {HTMLInputElement} */ (document.getElementById('batch-rest-up'))?.value) || 60);
+      const main = Math.max(5, Number(/** @type {HTMLInputElement} */ (document.getElementById('batch-rest-main'))?.value) || 120);
+      const heavy = Math.max(5, Number(/** @type {HTMLInputElement} */ (document.getElementById('batch-rest-heavy'))?.value) || 180);
+      const down = Math.max(5, Number(/** @type {HTMLInputElement} */ (document.getElementById('batch-rest-down'))?.value) || 60);
+
+      const batchRest = { UP: up, MAIN: main, HEAVY: heavy, DOWN: down };
+      storeInstance.updateProfile({ defaultRestSeconds: batchRest });
+      storeInstance.batchUpdateExerciseRestSeconds(batchRest);
+      showToast('全種目のセット別休憩タイマーを一括更新しました！', 'success');
+      renderSettings();
+      return;
+    }
+
     // プロファイル保存
     if (target.closest('#btn-save-profile')) {
       handleSaveProfile();
@@ -165,7 +202,14 @@ function bindEvents() {
         showToast('種目名を入力してください', 'warning');
         return;
       }
-      if (storeInstance.addExerciseTemplate(name, rest, category)) {
+      const curDefaults = storeInstance.getState().profile.defaultRestSeconds || { UP: 60, MAIN: 120, HEAVY: 180, DOWN: 60 };
+      const newRest = {
+        UP: curDefaults.UP,
+        MAIN: rest,
+        HEAVY: curDefaults.HEAVY,
+        DOWN: curDefaults.DOWN,
+      };
+      if (storeInstance.addExerciseTemplate(name, rest, category, newRest)) {
         showToast(`種目「${name} (${category})」を追加しました`, 'success');
         if (nameInput) nameInput.value = '';
         renderSettings();
@@ -260,15 +304,25 @@ function bindEvents() {
     }
   });
 
-  // 種目別休憩時間のインライン変更
+  // 種目別・セット種別ごとの休憩時間のインライン変更
   container.addEventListener('change', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
-    if (target.classList.contains('input-exercise-template-rest')) {
-      const exId = target.getAttribute('data-exercise-id');
-      const val = Number(/** @type {HTMLInputElement} */ (target).value) || 120;
-      if (exId) {
-        storeInstance.updateExerciseTemplate(exId, { defaultRestSeconds: val });
-        showToast('種目の休憩時間を更新しました', 'success');
+    if (target.classList.contains('input-exercise-set-rest')) {
+      const input = /** @type {HTMLInputElement} */ (target);
+      const exId = input.getAttribute('data-exercise-id');
+      const setType = /** @type {import('../model.js').SetType | null} */ (input.getAttribute('data-set-type'));
+      const val = Math.max(5, Number(input.value) || 60);
+      if (exId && setType) {
+        const ex = storeInstance.getState().exerciseTemplates.find((t) => t.id === exId);
+        const updatedRest = {
+          ...(ex?.restSeconds || { UP: 60, MAIN: 120, HEAVY: 180, DOWN: 60 }),
+          [setType]: val,
+        };
+        storeInstance.updateExerciseTemplate(exId, {
+          restSeconds: updatedRest,
+          defaultRestSeconds: updatedRest.MAIN || val,
+        });
+        showToast(`「${ex?.name || '種目'}」の${setType}休憩を ${val}秒 に更新しました`, 'success');
       }
     }
 
@@ -308,11 +362,6 @@ function handleSaveProfile() {
   const targetF = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-f'))?.value);
   const targetC = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-c'))?.value);
 
-  const restUp = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-up'))?.value) || 60;
-  const restMain = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-main'))?.value) || 120;
-  const restHeavy = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-heavy'))?.value) || 180;
-  const restDown = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-down'))?.value) || 60;
-
   const payload = {
     name,
     height,
@@ -328,11 +377,11 @@ function handleSaveProfile() {
     targetP,
     targetF,
     targetC,
-    defaultRestSeconds: {
-      UP: restUp,
-      MAIN: restMain,
-      HEAVY: restHeavy,
-      DOWN: restDown,
+    defaultRestSeconds: storeInstance.getState().profile.defaultRestSeconds || {
+      UP: 60,
+      MAIN: 120,
+      HEAVY: 180,
+      DOWN: 60,
     },
   };
 
@@ -409,253 +458,347 @@ export function renderSettings() {
   const routines = state.routines;
   const exerciseTemplates = state.exerciseTemplates;
 
+  const isProfileCollapsed = collapsedSections.has('profile');
+  const isExercisesCollapsed = collapsedSections.has('exercises');
+  const isRoutinesCollapsed = collapsedSections.has('routines');
+  const isSupplementsCollapsed = collapsedSections.has('supplements');
+  const isBackupCollapsed = collapsedSections.has('backup');
+
   container.innerHTML = `
     <!-- プロファイル設定 -->
-    <section class="card settings-card">
-      <h3 class="card-title">👤 ユーザープロファイル＆目標設定</h3>
-
-      <div class="form-grid">
-        <div class="form-group">
-          <label for="profile-name">お名前 / ニックネーム</label>
-          <input type="text" id="profile-name" class="input" value="${escapeHtml(profile.name)}">
+    <section class="card settings-card settings-accordion-card ${isProfileCollapsed ? 'is-collapsed' : ''}" data-section-id="profile">
+      <button type="button" class="settings-accordion-header" aria-expanded="${!isProfileCollapsed}">
+        <div class="accordion-title-wrap">
+          <span class="accordion-icon">👤</span>
+          <h3 class="card-title">ユーザープロファイル＆目標設定</h3>
         </div>
-        <div class="form-group">
-          <label for="profile-gender">性別</label>
-          <select id="profile-gender" class="input">
-            <option value="male" ${profile.gender === 'male' ? 'selected' : ''}>男性</option>
-            <option value="female" ${profile.gender === 'female' ? 'selected' : ''}>女性</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="profile-height">身長 (cm)</label>
-          <input type="number" id="profile-height" class="input" step="0.5" value="${profile.height}">
-        </div>
-        <div class="form-group">
-          <label for="profile-age">年齢</label>
-          <input type="number" id="profile-age" class="input" value="${profile.age}">
-        </div>
-        <div class="form-group">
-          <label for="profile-start-weight">開始時体重 (kg)</label>
-          <input type="number" id="profile-start-weight" class="input" step="0.1" value="${profile.startWeight !== undefined ? profile.startWeight : profile.currentWeight}">
-        </div>
-        <div class="form-group">
-          <label for="profile-weight">現在体重 (kg)</label>
-          <input type="number" id="profile-weight" class="input" step="0.1" value="${profile.currentWeight}">
-        </div>
-        <div class="form-group">
-          <label for="profile-target-weight">目標体重 (kg)</label>
-          <input type="number" id="profile-target-weight" class="input" step="0.1" value="${profile.targetWeight}">
-        </div>
-        <div class="form-group">
-          <label for="profile-target-date">目標達成予定日</label>
-          <input type="date" id="profile-target-date" class="input" value="${profile.targetDate || ''}">
-        </div>
-        <div class="form-group">
-          <label for="profile-goal">目的</label>
-          <select id="profile-goal" class="input">
-            <option value="cut" ${profile.goalType === 'cut' ? 'selected' : ''}>減量 (Cut / カロリー制限)</option>
-            <option value="maintain" ${profile.goalType === 'maintain' ? 'selected' : ''}>維持 (Maintain / 体型キープ)</option>
-            <option value="bulk" ${profile.goalType === 'bulk' ? 'selected' : ''}>増量 (Bulk / 筋肥大・カロリー余剰)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="profile-activity">活動レベル</label>
-          <select id="profile-activity" class="input">
-            <option value="sedentary" ${profile.activityLevel === 'sedentary' ? 'selected' : ''}>デスクワーク・運動少なめ</option>
-            <option value="light" ${profile.activityLevel === 'light' ? 'selected' : ''}>軽い運動 (週1〜2回)</option>
-            <option value="moderate" ${profile.activityLevel === 'moderate' ? 'selected' : ''}>適度な運動 (週3〜5回トレ)</option>
-            <option value="active" ${profile.activityLevel === 'active' ? 'selected' : ''}>激しい運動・肉体労働</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- 目標PFCセクション -->
-      <div class="pfc-calc-section">
-        <div class="pfc-calc-header">
-          <h4 class="font-bold">目標カロリー＆PFCバランス</h4>
-          <button type="button" id="btn-autocalc-pfc" class="btn btn-sm btn-outline-cyan">
-            ⚡ 自動計算して反映
-          </button>
-        </div>
-
-        <div class="pfc-inputs-grid">
-          <div class="form-group">
-            <label for="profile-calories">目標総カロリー (kcal)</label>
-            <input type="number" id="profile-calories" class="input font-mono" value="${profile.targetCalories}">
-          </div>
-          <div class="form-group">
-            <label for="profile-p">タンパク質 P (g)</label>
-            <input type="number" id="profile-p" class="input font-mono" value="${profile.targetP}">
-          </div>
-          <div class="form-group">
-            <label for="profile-f">脂質 F (g)</label>
-            <input type="number" id="profile-f" class="input font-mono" value="${profile.targetF}">
-          </div>
-          <div class="form-group">
-            <label for="profile-c">炭水化物 C (g)</label>
-            <input type="number" id="profile-c" class="input font-mono" value="${profile.targetC}">
-          </div>
-        </div>
-      </div>
-
-      <!-- セット種別ごとの標準休憩タイマー設定 -->
-      <div class="rest-timer-settings">
-        <h4 class="font-bold">セット種別ごとの標準休憩タイマー (秒)</h4>
-        <div class="rest-inputs-grid">
-          <div class="form-group">
-            <label for="rest-up">UPセット (秒)</label>
-            <input type="number" id="rest-up" class="input font-mono" value="${profile.defaultRestSeconds.UP}">
-          </div>
-          <div class="form-group">
-            <label for="rest-main">MAINセット (秒)</label>
-            <input type="number" id="rest-main" class="input font-mono" value="${profile.defaultRestSeconds.MAIN}">
-          </div>
-          <div class="form-group">
-            <label for="rest-heavy">HEAVYセット (秒)</label>
-            <input type="number" id="rest-heavy" class="input font-mono" value="${profile.defaultRestSeconds.HEAVY}">
-          </div>
-          <div class="form-group">
-            <label for="rest-down">DOWNセット (秒)</label>
-            <input type="number" id="rest-down" class="input font-mono" value="${profile.defaultRestSeconds.DOWN}">
-          </div>
-        </div>
-      </div>
-
-      <button type="button" id="btn-save-profile" class="btn btn-primary btn-large btn-glow mt-4">
-        💾 プロファイル設定を保存
+        <span class="settings-accordion-chevron">▾</span>
       </button>
+
+      <div class="settings-accordion-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="profile-name">お名前 / ニックネーム</label>
+            <input type="text" id="profile-name" class="input" value="${escapeHtml(profile.name)}">
+          </div>
+          <div class="form-group">
+            <label for="profile-gender">性別</label>
+            <select id="profile-gender" class="input">
+              <option value="male" ${profile.gender === 'male' ? 'selected' : ''}>男性</option>
+              <option value="female" ${profile.gender === 'female' ? 'selected' : ''}>女性</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="profile-height">身長 (cm)</label>
+            <input type="number" id="profile-height" class="input" step="0.5" value="${profile.height}">
+          </div>
+          <div class="form-group">
+            <label for="profile-age">年齢</label>
+            <input type="number" id="profile-age" class="input" value="${profile.age}">
+          </div>
+          <div class="form-group">
+            <label for="profile-start-weight">開始時体重 (kg)</label>
+            <input type="number" id="profile-start-weight" class="input" step="0.1" value="${profile.startWeight !== undefined ? profile.startWeight : profile.currentWeight}">
+          </div>
+          <div class="form-group">
+            <label for="profile-weight">現在体重 (kg)</label>
+            <input type="number" id="profile-weight" class="input" step="0.1" value="${profile.currentWeight}">
+          </div>
+          <div class="form-group">
+            <label for="profile-target-weight">目標体重 (kg)</label>
+            <input type="number" id="profile-target-weight" class="input" step="0.1" value="${profile.targetWeight}">
+          </div>
+          <div class="form-group">
+            <label for="profile-target-date">目標達成予定日</label>
+            <input type="date" id="profile-target-date" class="input" value="${profile.targetDate || ''}">
+          </div>
+          <div class="form-group">
+            <label for="profile-goal">目的</label>
+            <select id="profile-goal" class="input">
+              <option value="cut" ${profile.goalType === 'cut' ? 'selected' : ''}>減量 (Cut / カロリー制限)</option>
+              <option value="maintain" ${profile.goalType === 'maintain' ? 'selected' : ''}>維持 (Maintain / 体型キープ)</option>
+              <option value="bulk" ${profile.goalType === 'bulk' ? 'selected' : ''}>増量 (Bulk / 筋肥大・カロリー余剰)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="profile-activity">活動レベル</label>
+            <select id="profile-activity" class="input">
+              <option value="sedentary" ${profile.activityLevel === 'sedentary' ? 'selected' : ''}>デスクワーク・運動少なめ</option>
+              <option value="light" ${profile.activityLevel === 'light' ? 'selected' : ''}>軽い運動 (週1〜2回)</option>
+              <option value="moderate" ${profile.activityLevel === 'moderate' ? 'selected' : ''}>適度な運動 (週3〜5回トレ)</option>
+              <option value="active" ${profile.activityLevel === 'active' ? 'selected' : ''}>激しい運動・肉体労働</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 目標PFCセクション -->
+        <div class="pfc-calc-section">
+          <div class="pfc-calc-header">
+            <h4 class="font-bold">目標カロリー＆PFCバランス</h4>
+            <button type="button" id="btn-autocalc-pfc" class="btn btn-sm btn-outline-cyan">
+              ⚡ 自動計算して反映
+            </button>
+          </div>
+
+          <div class="pfc-inputs-grid">
+            <div class="form-group">
+              <label for="profile-calories">目標総カロリー (kcal)</label>
+              <input type="number" id="profile-calories" class="input font-mono" value="${profile.targetCalories}">
+            </div>
+            <div class="form-group">
+              <label for="profile-p">タンパク質 P (g)</label>
+              <input type="number" id="profile-p" class="input font-mono" value="${profile.targetP}">
+            </div>
+            <div class="form-group">
+              <label for="profile-f">脂質 F (g)</label>
+              <input type="number" id="profile-f" class="input font-mono" value="${profile.targetF}">
+            </div>
+            <div class="form-group">
+              <label for="profile-c">炭水化物 C (g)</label>
+              <input type="number" id="profile-c" class="input font-mono" value="${profile.targetC}">
+            </div>
+          </div>
+        </div>
+
+        <button type="button" id="btn-save-profile" class="btn btn-primary btn-large btn-glow mt-4">
+          💾 プロファイル設定を保存
+        </button>
+      </div>
     </section>
 
     <!-- 種目マスター＆種目別休憩タイマー管理 -->
-    <section class="card settings-card">
-      <h3 class="card-title">🏋️ 種目マスター＆種目別休憩タイマー (${exerciseTemplates.length})</h3>
-      <p class="text-muted text-sm mb-3">
-        種目ごとに部位カテゴリおよび個別の休憩時間を秒数で設定できます。ワークアウト中に自動適用されます。
-      </p>
+    <section class="card settings-card settings-accordion-card ${isExercisesCollapsed ? 'is-collapsed' : ''}" data-section-id="exercises">
+      <button type="button" class="settings-accordion-header" aria-expanded="${!isExercisesCollapsed}">
+        <div class="accordion-title-wrap">
+          <span class="accordion-icon">🏋️</span>
+          <h3 class="card-title">種目マスター＆種目別休憩タイマー (${exerciseTemplates.length})</h3>
+        </div>
+        <span class="settings-accordion-chevron">▾</span>
+      </button>
 
-      <div class="exercise-manager-list">
-        ${exerciseTemplates
-          .map(
-            (ex) => `
-          <div class="exercise-manager-item">
-            <div class="exercise-info">
-              <span class="badge badge-category badge-cat-${ex.category || 'その他'}">${escapeHtml(ex.category || 'その他')}</span>
-              <span class="font-bold ml-2">${escapeHtml(ex.name)}</span>
+      <div class="settings-accordion-body">
+        <p class="text-muted text-sm mb-3">
+          種目ごとにUP / MAIN / HEAVY / DOWNの休憩時間を個別に秒数で設定できます。ワークアウトのセット記録時に自動適用されます。
+        </p>
+
+        <!-- 一括設定＆標準タイマー設定 -->
+        <div class="batch-rest-box">
+          <div class="batch-rest-header">
+            <div>
+              <span class="font-bold text-sm text-cyan">⚡ セット種別ごとの標準休憩タイマー（一括反映）</span>
+              <p class="text-xs text-muted mt-0.5">全種目のUP/MAIN/HEAVY/DOWN休憩秒数を一括で上書き・統一します</p>
             </div>
-            <div class="exercise-rest-control">
-              <span class="text-sm text-muted">休憩:</span>
-              <input type="number" class="input input-sm input-exercise-template-rest font-mono" style="max-width: 80px;" data-exercise-id="${ex.id}" value="${ex.defaultRestSeconds}" min="10" step="5">
-              <span class="text-sm text-muted">秒</span>
-              <button type="button" class="btn-icon btn-delete-exercise-template" data-exercise-id="${ex.id}" title="種目削除">
-                🗑
-              </button>
+            <button type="button" id="btn-batch-apply-rest" class="btn btn-sm btn-outline-cyan">
+              全種目に一括反映
+            </button>
+          </div>
+          <div class="batch-rest-inputs-grid mt-2">
+            <div class="batch-rest-item">
+              <label for="batch-rest-up"><span class="badge badge-set-type badge-up">UP</span></label>
+              <div class="input-with-unit-inline">
+                <input type="number" id="batch-rest-up" class="input input-sm font-mono" value="${profile.defaultRestSeconds?.UP ?? 60}" min="5" step="5">
+                <span class="unit">秒</span>
+              </div>
+            </div>
+            <div class="batch-rest-item">
+              <label for="batch-rest-main"><span class="badge badge-set-type badge-main">MAIN</span></label>
+              <div class="input-with-unit-inline">
+                <input type="number" id="batch-rest-main" class="input input-sm font-mono" value="${profile.defaultRestSeconds?.MAIN ?? 120}" min="5" step="5">
+                <span class="unit">秒</span>
+              </div>
+            </div>
+            <div class="batch-rest-item">
+              <label for="batch-rest-heavy"><span class="badge badge-set-type badge-heavy">HEAVY</span></label>
+              <div class="input-with-unit-inline">
+                <input type="number" id="batch-rest-heavy" class="input input-sm font-mono" value="${profile.defaultRestSeconds?.HEAVY ?? 180}" min="5" step="5">
+                <span class="unit">秒</span>
+              </div>
+            </div>
+            <div class="batch-rest-item">
+              <label for="batch-rest-down"><span class="badge badge-set-type badge-down">DOWN</span></label>
+              <div class="input-with-unit-inline">
+                <input type="number" id="batch-rest-down" class="input input-sm font-mono" value="${profile.defaultRestSeconds?.DOWN ?? 60}" min="5" step="5">
+                <span class="unit">秒</span>
+              </div>
             </div>
           </div>
-        `,
-          )
-          .join('')}
-      </div>
+        </div>
 
-      <div class="add-exercise-form mt-4">
-        <h4 class="font-bold text-sm text-muted">新規種目の追加</h4>
-        <div class="add-exercise-grid mt-2">
-          <input type="text" id="input-new-exercise-name" class="input" placeholder="例: インクラインダンベルフライ">
-          <select id="input-new-exercise-category" class="input" style="max-width: 95px;">
-            <option value="胸">胸</option>
-            <option value="背中">背中</option>
-            <option value="脚">脚</option>
-            <option value="肩">肩</option>
-            <option value="腕">腕</option>
-            <option value="腹">腹</option>
-            <option value="その他" selected>その他</option>
-          </select>
-          <div class="input-with-unit-inline">
-            <input type="number" id="input-new-exercise-rest" class="input font-mono" style="max-width: 85px;" value="120" min="10" step="5">
-            <span class="text-muted text-sm">秒</span>
+        <!-- 種目一覧 -->
+        <div class="exercise-manager-list">
+          ${exerciseTemplates
+            .map((ex) => {
+              const restUp = ex.restSeconds?.UP ?? profile.defaultRestSeconds?.UP ?? 60;
+              const restMain = ex.restSeconds?.MAIN ?? ex.defaultRestSeconds ?? profile.defaultRestSeconds?.MAIN ?? 120;
+              const restHeavy = ex.restSeconds?.HEAVY ?? profile.defaultRestSeconds?.HEAVY ?? 180;
+              const restDown = ex.restSeconds?.DOWN ?? profile.defaultRestSeconds?.DOWN ?? 60;
+              return `
+            <div class="exercise-manager-item" data-exercise-id="${ex.id}">
+              <div class="exercise-item-header">
+                <div class="exercise-info">
+                  <span class="badge badge-category badge-cat-${ex.category || 'その他'}">${escapeHtml(ex.category || 'その他')}</span>
+                  <span class="font-bold ml-2">${escapeHtml(ex.name)}</span>
+                </div>
+                <button type="button" class="btn-icon btn-delete-exercise-template" data-exercise-id="${ex.id}" title="種目削除">
+                  🗑
+                </button>
+              </div>
+              <div class="exercise-set-rest-row mt-2">
+                <div class="rest-type-input-group">
+                  <span class="rest-type-badge badge-up">UP</span>
+                  <input type="number" class="input input-sm font-mono input-exercise-set-rest" data-exercise-id="${ex.id}" data-set-type="UP" value="${restUp}" min="5" step="5">
+                  <span class="unit">秒</span>
+                </div>
+                <div class="rest-type-input-group">
+                  <span class="rest-type-badge badge-main">MAIN</span>
+                  <input type="number" class="input input-sm font-mono input-exercise-set-rest" data-exercise-id="${ex.id}" data-set-type="MAIN" value="${restMain}" min="5" step="5">
+                  <span class="unit">秒</span>
+                </div>
+                <div class="rest-type-input-group">
+                  <span class="rest-type-badge badge-heavy">HEAVY</span>
+                  <input type="number" class="input input-sm font-mono input-exercise-set-rest" data-exercise-id="${ex.id}" data-set-type="HEAVY" value="${restHeavy}" min="5" step="5">
+                  <span class="unit">秒</span>
+                </div>
+                <div class="rest-type-input-group">
+                  <span class="rest-type-badge badge-down">DOWN</span>
+                  <input type="number" class="input input-sm font-mono input-exercise-set-rest" data-exercise-id="${ex.id}" data-set-type="DOWN" value="${restDown}" min="5" step="5">
+                  <span class="unit">秒</span>
+                </div>
+              </div>
+            </div>
+          `;
+            })
+            .join('')}
+        </div>
+
+        <div class="add-exercise-form mt-4">
+          <h4 class="font-bold text-sm text-muted">新規種目の追加</h4>
+          <div class="add-exercise-grid mt-2">
+            <input type="text" id="input-new-exercise-name" class="input" placeholder="例: インクラインダンベルフライ">
+            <select id="input-new-exercise-category" class="input" style="max-width: 95px;">
+              <option value="胸">胸</option>
+              <option value="背中">背中</option>
+              <option value="脚">脚</option>
+              <option value="肩">肩</option>
+              <option value="腕">腕</option>
+              <option value="腹">腹</option>
+              <option value="その他" selected>その他</option>
+            </select>
+            <div class="input-with-unit-inline">
+              <input type="number" id="input-new-exercise-rest" class="input font-mono" style="max-width: 85px;" value="${profile.defaultRestSeconds?.MAIN ?? 120}" min="10" step="5">
+              <span class="text-muted text-sm">秒</span>
+            </div>
+            <button type="button" id="btn-add-exercise-template" class="btn btn-outline-cyan">追加</button>
           </div>
-          <button type="button" id="btn-add-exercise-template" class="btn btn-outline-cyan">追加</button>
         </div>
       </div>
     </section>
 
     <!-- マイルーティン設定 -->
-    <section class="card settings-card">
-      <h3 class="card-title">🍽️ マイルーティン（ワンタップ食事）の管理</h3>
-      <div class="routine-manager-list">
-        ${routines
-          .map(
-            (r) => `
-          <div class="routine-manager-item">
-            <div>
-              <span class="font-bold">${escapeHtml(r.name)}</span>
-              <span class="text-sm font-mono text-muted ml-2">P:${r.p}g / F:${r.f}g / C:${r.c}g</span>
-            </div>
-            <button type="button" class="btn-icon btn-delete-routine" data-routine-id="${r.id}" title="削除">
-              🗑
-            </button>
-          </div>
-        `,
-          )
-          .join('')}
-      </div>
+    <section class="card settings-card settings-accordion-card ${isRoutinesCollapsed ? 'is-collapsed' : ''}" data-section-id="routines">
+      <button type="button" class="settings-accordion-header" aria-expanded="${!isRoutinesCollapsed}">
+        <div class="accordion-title-wrap">
+          <span class="accordion-icon">🍽️</span>
+          <h3 class="card-title">マイルーティン（ワンタップ食事）の管理 (${routines.length})</h3>
+        </div>
+        <span class="settings-accordion-chevron">▾</span>
+      </button>
 
-      <div class="add-routine-form mt-4">
-        <h4 class="font-bold text-sm text-muted">新規ルーティンの追加</h4>
-        <div class="add-routine-grid">
-          <input type="text" id="routine-new-name" class="input" placeholder="例: プロテインバー">
-          <input type="number" id="routine-new-p" class="input" placeholder="P (g)">
-          <input type="number" id="routine-new-f" class="input" placeholder="F (g)">
-          <input type="number" id="routine-new-c" class="input" placeholder="C (g)">
-          <button type="button" id="btn-add-routine" class="btn btn-outline-cyan">追加</button>
+      <div class="settings-accordion-body">
+        <div class="routine-manager-list">
+          ${routines
+            .map(
+              (r) => `
+            <div class="routine-manager-item">
+              <div>
+                <span class="font-bold">${escapeHtml(r.name)}</span>
+                <span class="text-sm font-mono text-muted ml-2">P:${r.p}g / F:${r.f}g / C:${r.c}g</span>
+              </div>
+              <button type="button" class="btn-icon btn-delete-routine" data-routine-id="${r.id}" title="削除">
+                🗑
+              </button>
+            </div>
+          `,
+            )
+            .join('')}
+        </div>
+
+        <div class="add-routine-form mt-4">
+          <h4 class="font-bold text-sm text-muted">新規ルーティンの追加</h4>
+          <div class="add-routine-grid">
+            <input type="text" id="routine-new-name" class="input" placeholder="例: プロテインバー">
+            <input type="number" id="routine-new-p" class="input" placeholder="P (g)">
+            <input type="number" id="routine-new-f" class="input" placeholder="F (g)">
+            <input type="number" id="routine-new-c" class="input" placeholder="C (g)">
+            <button type="button" id="btn-add-routine" class="btn btn-outline-cyan">追加</button>
+          </div>
         </div>
       </div>
     </section>
 
     <!-- サプリメント管理 -->
-    <section class="card settings-card">
-      <h3 class="card-title">💊 サプリメントチェックリスト管理</h3>
-      <div class="supp-manager-chips">
-        ${profile.supplements
-          .map(
-            (s) => `
-          <span class="chip chip-with-delete">
-            ${escapeHtml(s)}
-            <button type="button" class="chip-delete-btn btn-delete-supplement" data-supp-name="${escapeHtml(s)}">×</button>
-          </span>
-        `,
-          )
-          .join('')}
-      </div>
+    <section class="card settings-card settings-accordion-card ${isSupplementsCollapsed ? 'is-collapsed' : ''}" data-section-id="supplements">
+      <button type="button" class="settings-accordion-header" aria-expanded="${!isSupplementsCollapsed}">
+        <div class="accordion-title-wrap">
+          <span class="accordion-icon">💊</span>
+          <h3 class="card-title">サプリメントチェックリスト管理 (${profile.supplements.length})</h3>
+        </div>
+        <span class="settings-accordion-chevron">▾</span>
+      </button>
 
-      <div class="add-supp-row mt-3">
-        <input type="text" id="input-new-supplement" class="input" placeholder="例: アシュワガンダ">
-        <button type="button" id="btn-add-supplement" class="btn btn-outline-cyan">サプリ追加</button>
+      <div class="settings-accordion-body">
+        <div class="supp-manager-chips">
+          ${profile.supplements
+            .map(
+              (s) => `
+            <span class="chip chip-with-delete">
+              ${escapeHtml(s)}
+              <button type="button" class="chip-delete-btn btn-delete-supplement" data-supp-name="${escapeHtml(s)}">×</button>
+            </span>
+          `,
+            )
+            .join('')}
+        </div>
+
+        <div class="add-supp-row mt-3">
+          <input type="text" id="input-new-supplement" class="input" placeholder="例: アシュワガンダ">
+          <button type="button" id="btn-add-supplement" class="btn btn-outline-cyan">サプリ追加</button>
+        </div>
       </div>
     </section>
 
     <!-- データ管理＆バックアップ -->
-    <section class="card settings-card">
-      <h3 class="card-title">💾 データ管理＆バックアップ</h3>
-      <p class="text-muted text-sm">
-        データはブラウザの localStorage に完全保存されています。
-        機種変更時や端末間での引き継ぎには JSON エクスポート / インポートをご利用ください。
-      </p>
+    <section class="card settings-card settings-accordion-card ${isBackupCollapsed ? 'is-collapsed' : ''}" data-section-id="backup">
+      <button type="button" class="settings-accordion-header" aria-expanded="${!isBackupCollapsed}">
+        <div class="accordion-title-wrap">
+          <span class="accordion-icon">💾</span>
+          <h3 class="card-title">データ管理＆バックアップ</h3>
+        </div>
+        <span class="settings-accordion-chevron">▾</span>
+      </button>
 
-      <div class="backup-actions-grid mt-3">
-        <button type="button" id="btn-export-json" class="btn btn-outline-cyan">
-          📥 JSON エクスポート (バックアップ)
-        </button>
-        <button type="button" id="btn-import-json" class="btn btn-outline-cyan">
-          📤 JSON インポート (復元)
-        </button>
-        <input type="file" id="input-file-import" accept=".json" style="display: none;">
-      </div>
+      <div class="settings-accordion-body">
+        <p class="text-muted text-sm">
+          データはブラウザの localStorage に完全保存されています。
+          機種変更時や端末間での引き継ぎには JSON エクスポート / インポートをご利用ください。
+        </p>
 
-      <div class="danger-zone mt-6">
-        <h4 class="text-rose text-sm font-bold">危険ゾーン</h4>
-        <button type="button" id="btn-reset-all" class="btn btn-outline-danger mt-2">
-          全データを初期化
-        </button>
+        <div class="backup-actions-grid mt-3">
+          <button type="button" id="btn-export-json" class="btn btn-outline-cyan">
+            📥 JSON エクスポート (バックアップ)
+          </button>
+          <button type="button" id="btn-import-json" class="btn btn-outline-cyan">
+            📤 JSON インポート (復元)
+          </button>
+          <input type="file" id="input-file-import" accept=".json" style="display: none;">
+        </div>
+
+        <div class="danger-zone mt-6">
+          <h4 class="text-rose text-sm font-bold">危険ゾーン</h4>
+          <button type="button" id="btn-reset-all" class="btn btn-outline-danger mt-2">
+            全データを初期化
+          </button>
+        </div>
       </div>
     </section>
   `;

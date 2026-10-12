@@ -151,11 +151,19 @@ function normalizeExerciseTemplate(e) {
       const match = DEFAULT_EXERCISES.find((def) => def.name === cleanName);
       cat = match ? match.category : 'その他';
     }
+    const mainRest = Math.max(10, Number(e.defaultRestSeconds) || (Number(e.restSeconds?.MAIN) || 120));
+    const restSeconds = {
+      UP: Math.max(10, Number(e.restSeconds?.UP) || 60),
+      MAIN: Math.max(10, Number(e.restSeconds?.MAIN) || mainRest),
+      HEAVY: Math.max(10, Number(e.restSeconds?.HEAVY) || Math.max(mainRest, 180)),
+      DOWN: Math.max(10, Number(e.restSeconds?.DOWN) || 60),
+    };
     return {
       id: typeof e.id === 'string' ? e.id : newId(),
       name: cleanName,
       category: /** @type {import('./model.js').MuscleCategory} */ (cat),
-      defaultRestSeconds: Math.max(10, Number(e.defaultRestSeconds) || 120),
+      defaultRestSeconds: mainRest,
+      restSeconds,
     };
   }
   return null;

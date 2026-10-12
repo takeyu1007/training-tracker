@@ -216,6 +216,16 @@ function bindEvents() {
     if (target.id === 'input-set-count') {
       updateBatchButtonText();
     }
+    // セット種別変更時にその種目の該当種別休憩時間を自動反映
+    if (target.getAttribute('name') === 'set-type') {
+      const exSelect = /** @type {HTMLSelectElement | null} */ (document.getElementById('input-exercise-name'));
+      const template = storeInstance.getExerciseTemplate(exSelect?.value || '');
+      const restInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-exercise-rest'));
+      const newType = /** @type {import('../model.js').SetType} */ (/** @type {HTMLInputElement} */ (target).value);
+      if (restInput && template) {
+        restInput.value = String(template.restSeconds?.[newType] || template.defaultRestSeconds || 120);
+      }
+    }
   });
 
   // リアルタイム入力
@@ -249,10 +259,12 @@ function handleExerciseChange(exerciseName) {
   const hintEl = document.getElementById('exercise-prev-hint');
   const overloadEl = document.getElementById('exercise-overload-suggestion');
 
-  // 種目マスターの休憩時間をセット
+  // 種目マスターのセット種別ごとの休憩時間をセット
   const template = storeInstance.getExerciseTemplate(exerciseName);
+  const setTypeRadio = /** @type {HTMLInputElement | null} */ (document.querySelector('input[name="set-type"]:checked'));
+  const curType = /** @type {import('../model.js').SetType} */ (setTypeRadio?.value || 'MAIN');
   if (restInput && template) {
-    restInput.value = String(template.defaultRestSeconds);
+    restInput.value = String(template.restSeconds?.[curType] || template.defaultRestSeconds || 120);
   }
 
   if (prev && weightInput && repsInput) {
