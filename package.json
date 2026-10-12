@@ -1,0 +1,10 @@
+{
+  "name": "training-tracker",
+  "private": true,
+  "type": "module",
+  "description": "筋トレ＆PFC・コンディション管理トラッカー（PWA）。依存パッケージなし・ビルド不要。",
+  "scripts": {
+    "test": "node --test \"tests/**/*.test.js\"",
+    "serve": "python3 -m http.server 8080"
+  }
+}

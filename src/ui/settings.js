@@ -1,0 +1,448 @@
+// @ts-check
+/**
+ * 設定・プロファイル・バックアップ UI モジュール
+ */
+
+import { calculateTargetPFC } from '../calc.js';
+import { escapeHtml } from '../format.js';
+import { showToast } from './toast.js';
+
+/** @type {import('../store.js').Store} */
+let storeInstance;
+let isResetArmed = false;
+
+/**
+ * @param {import('../store.js').Store} store
+ */
+export function initSettingsUI(store) {
+  storeInstance = store;
+  bindEvents();
+  renderSettings();
+}
+
+function bindEvents() {
+  const container = document.getElementById('tab-settings');
+  if (!container) return;
+
+  container.addEventListener('click', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+
+    // プロファイル保存
+    if (target.closest('#btn-save-profile')) {
+      handleSaveProfile();
+      return;
+    }
+
+    // 目標PFCの自動再計算
+    if (target.closest('#btn-autocalc-pfc')) {
+      handleAutoCalcPFC();
+      return;
+    }
+
+    // 新規ルーティン追加
+    if (target.closest('#btn-add-routine')) {
+      handleAddRoutine();
+      return;
+    }
+
+    // ルーティン削除
+    const delRoutineBtn = target.closest('.btn-delete-routine');
+    if (delRoutineBtn) {
+      const id = delRoutineBtn.getAttribute('data-routine-id');
+      if (id) {
+        storeInstance.deleteRoutine(id);
+        showToast('ルーティンを削除しました', 'info');
+        renderSettings();
+      }
+      return;
+    }
+
+    // サプリ追加
+    if (target.closest('#btn-add-supplement')) {
+      const suppInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-new-supplement'));
+      const val = suppInput?.value.trim();
+      if (val) {
+        const cur = storeInstance.getState().profile.supplements;
+        if (!cur.includes(val)) {
+          storeInstance.updateProfile({ supplements: [...cur, val] });
+          showToast(`サプリ「${val}」を追加しました`, 'success');
+          if (suppInput) suppInput.value = '';
+          renderSettings();
+        }
+      }
+      return;
+    }
+
+    // サプリ削除
+    const delSuppBtn = target.closest('.btn-delete-supplement');
+    if (delSuppBtn) {
+      const name = delSuppBtn.getAttribute('data-supp-name');
+      if (name) {
+        const cur = storeInstance.getState().profile.supplements;
+        storeInstance.updateProfile({ supplements: cur.filter((s) => s !== name) });
+        showToast(`サプリ「${name}」を削除しました`, 'info');
+        renderSettings();
+      }
+      return;
+    }
+
+    // JSON エクスポート
+    if (target.closest('#btn-export-json')) {
+      const dataStr = storeInstance.exportData();
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      a.href = url;
+      a.download = `trainingTracker_backup_${dateStr}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('バックアップJSONをダウンロードしました', 'success');
+      return;
+    }
+
+    // JSON インポート
+    if (target.closest('#btn-import-json')) {
+      const fileInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-file-import'));
+      fileInput?.click();
+      return;
+    }
+
+    // 全データ初期化（2段階安全確認）
+    if (target.closest('#btn-reset-all')) {
+      const resetBtn = /** @type {HTMLButtonElement} */ (target.closest('#btn-reset-all'));
+      if (!isResetArmed) {
+        isResetArmed = true;
+        resetBtn.textContent = '⚠️ 本当に初期化しますか？もう一度タップ';
+        resetBtn.classList.add('btn-danger-armed');
+        setTimeout(() => {
+          isResetArmed = false;
+          resetBtn.textContent = '全データを初期化';
+          resetBtn.classList.remove('btn-danger-armed');
+        }, 4000);
+      } else {
+        storeInstance.resetAll();
+        isResetArmed = false;
+        showToast('全データを初期化しました', 'warning');
+        renderSettings();
+      }
+      return;
+    }
+  });
+
+  // ファイルインポート変更
+  container.addEventListener('change', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    if (target.id === 'input-file-import') {
+      const file = /** @type {HTMLInputElement} */ (target).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const content = String(evt.target?.result || '');
+          if (storeInstance.importData(content)) {
+            showToast('データを正常に復元しました！', 'success');
+            renderSettings();
+          } else {
+            showToast('JSONファイルの形式が不正です', 'error');
+          }
+        };
+        reader.readAsText(file);
+      }
+    }
+  });
+}
+
+function handleSaveProfile() {
+  const name = /** @type {HTMLInputElement} */ (document.getElementById('profile-name'))?.value;
+  const height = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-height'))?.value);
+  const currentWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-weight'))?.value);
+  const targetWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-target-weight'))?.value);
+  const age = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-age'))?.value);
+  const gender = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-gender'))?.value);
+  const goalType = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-goal'))?.value);
+  const activityLevel = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-activity'))?.value);
+
+  const targetCalories = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-calories'))?.value);
+  const targetP = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-p'))?.value);
+  const targetF = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-f'))?.value);
+  const targetC = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-c'))?.value);
+
+  const restUp = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-up'))?.value) || 60;
+  const restMain = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-main'))?.value) || 120;
+  const restHeavy = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-heavy'))?.value) || 180;
+  const restDown = Number(/** @type {HTMLInputElement} */ (document.getElementById('rest-down'))?.value) || 60;
+
+  storeInstance.updateProfile({
+    name,
+    height,
+    currentWeight,
+    targetWeight,
+    age,
+    gender,
+    goalType,
+    activityLevel,
+    targetCalories,
+    targetP,
+    targetF,
+    targetC,
+    defaultRestSeconds: {
+      UP: restUp,
+      MAIN: restMain,
+      HEAVY: restHeavy,
+      DOWN: restDown,
+    },
+  });
+
+  showToast('プロファイルを更新しました！', 'success');
+  renderSettings();
+}
+
+function handleAutoCalcPFC() {
+  const height = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-height'))?.value) || 172;
+  const currentWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-weight'))?.value) || 68;
+  const age = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-age'))?.value) || 28;
+  const gender = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-gender'))?.value) || 'male';
+  const goalType = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-goal'))?.value) || 'cut';
+  const activityLevel = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-activity'))?.value) || 'moderate';
+
+  const result = calculateTargetPFC({ height, currentWeight, age, gender, goalType, activityLevel });
+
+  const calInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-calories'));
+  const pInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-p'));
+  const fInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-f'));
+  const cInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-c'));
+
+  if (calInput) calInput.value = String(result.targetCalories);
+  if (pInput) pInput.value = String(result.targetP);
+  if (fInput) fInput.value = String(result.targetF);
+  if (cInput) cInput.value = String(result.targetC);
+
+  showToast('目標PFCを推奨値で自動計算しました！「設定を保存」で適用してください', 'info');
+}
+
+function handleAddRoutine() {
+  const nameInput = /** @type {HTMLInputElement | null} */ (document.getElementById('routine-new-name'));
+  const pInput = /** @type {HTMLInputElement | null} */ (document.getElementById('routine-new-p'));
+  const fInput = /** @type {HTMLInputElement | null} */ (document.getElementById('routine-new-f'));
+  const cInput = /** @type {HTMLInputElement | null} */ (document.getElementById('routine-new-c'));
+
+  const name = nameInput?.value.trim() || '';
+  const p = Number(pInput?.value) || 0;
+  const f = Number(fInput?.value) || 0;
+  const c = Number(cInput?.value) || 0;
+
+  if (!name) {
+    showToast('ルーティン名を入力してください', 'warning');
+    return;
+  }
+
+  storeInstance.addRoutine({ name, p, f, c, isSupplement: false });
+  showToast(`ルーティン「${name}」を追加しました`, 'success');
+
+  if (nameInput) nameInput.value = '';
+  if (pInput) pInput.value = '';
+  if (fInput) fInput.value = '';
+  if (cInput) cInput.value = '';
+
+  renderSettings();
+}
+
+export function renderSettings() {
+  const container = document.getElementById('tab-settings');
+  if (!container || !storeInstance) return;
+
+  const state = storeInstance.getState();
+  const profile = state.profile;
+  const routines = state.routines;
+
+  container.innerHTML = `
+    <!-- プロファイル設定 -->
+    <section class="card settings-card">
+      <h3 class="card-title">👤 ユーザープロファイル＆目標設定</h3>
+
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="profile-name">お名前 / ニックネーム</label>
+          <input type="text" id="profile-name" class="input" value="${escapeHtml(profile.name)}">
+        </div>
+        <div class="form-group">
+          <label for="profile-gender">性別</label>
+          <select id="profile-gender" class="input">
+            <option value="male" ${profile.gender === 'male' ? 'selected' : ''}>男性</option>
+            <option value="female" ${profile.gender === 'female' ? 'selected' : ''}>女性</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="profile-height">身長 (cm)</label>
+          <input type="number" id="profile-height" class="input" step="0.5" value="${profile.height}">
+        </div>
+        <div class="form-group">
+          <label for="profile-age">年齢</label>
+          <input type="number" id="profile-age" class="input" value="${profile.age}">
+        </div>
+        <div class="form-group">
+          <label for="profile-weight">現在体重 (kg)</label>
+          <input type="number" id="profile-weight" class="input" step="0.1" value="${profile.currentWeight}">
+        </div>
+        <div class="form-group">
+          <label for="profile-target-weight">目標体重 (kg)</label>
+          <input type="number" id="profile-target-weight" class="input" step="0.1" value="${profile.targetWeight}">
+        </div>
+        <div class="form-group">
+          <label for="profile-goal">目的</label>
+          <select id="profile-goal" class="input">
+            <option value="cut" ${profile.goalType === 'cut' ? 'selected' : ''}>減量 (Cut / カロリー制限)</option>
+            <option value="maintain" ${profile.goalType === 'maintain' ? 'selected' : ''}>維持 (Maintain / 体型キープ)</option>
+            <option value="bulk" ${profile.goalType === 'bulk' ? 'selected' : ''}>増量 (Bulk / 筋肥大・カロリー余剰)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="profile-activity">活動レベル</label>
+          <select id="profile-activity" class="input">
+            <option value="sedentary" ${profile.activityLevel === 'sedentary' ? 'selected' : ''}>デスクワーク・運動少なめ</option>
+            <option value="light" ${profile.activityLevel === 'light' ? 'selected' : ''}>軽い運動 (週1〜2回)</option>
+            <option value="moderate" ${profile.activityLevel === 'moderate' ? 'selected' : ''}>適度な運動 (週3〜5回トレ)</option>
+            <option value="active" ${profile.activityLevel === 'active' ? 'selected' : ''}>激しい運動・肉体労働</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 目標PFCセクション -->
+      <div class="pfc-calc-section">
+        <div class="pfc-calc-header">
+          <h4 class="font-bold">目標カロリー＆PFCバランス</h4>
+          <button type="button" id="btn-autocalc-pfc" class="btn btn-sm btn-outline-cyan">
+            ⚡ 自動計算して反映
+          </button>
+        </div>
+
+        <div class="pfc-inputs-grid">
+          <div class="form-group">
+            <label for="profile-calories">目標総カロリー (kcal)</label>
+            <input type="number" id="profile-calories" class="input font-mono" value="${profile.targetCalories}">
+          </div>
+          <div class="form-group">
+            <label for="profile-p">タンパク質 P (g)</label>
+            <input type="number" id="profile-p" class="input font-mono" value="${profile.targetP}">
+          </div>
+          <div class="form-group">
+            <label for="profile-f">脂質 F (g)</label>
+            <input type="number" id="profile-f" class="input font-mono" value="${profile.targetF}">
+          </div>
+          <div class="form-group">
+            <label for="profile-c">炭水化物 C (g)</label>
+            <input type="number" id="profile-c" class="input font-mono" value="${profile.targetC}">
+          </div>
+        </div>
+      </div>
+
+      <!-- 既定インターバルタイマー設定 -->
+      <div class="rest-timer-settings">
+        <h4 class="font-bold">既定インターバルタイマー秒数</h4>
+        <div class="rest-inputs-grid">
+          <div class="form-group">
+            <label for="rest-up">UPセット (秒)</label>
+            <input type="number" id="rest-up" class="input" value="${profile.defaultRestSeconds.UP}">
+          </div>
+          <div class="form-group">
+            <label for="rest-main">MAINセット (秒)</label>
+            <input type="number" id="rest-main" class="input" value="${profile.defaultRestSeconds.MAIN}">
+          </div>
+          <div class="form-group">
+            <label for="rest-heavy">HEAVYセット (秒)</label>
+            <input type="number" id="rest-heavy" class="input" value="${profile.defaultRestSeconds.HEAVY}">
+          </div>
+          <div class="form-group">
+            <label for="rest-down">DOWNセット (秒)</label>
+            <input type="number" id="rest-down" class="input" value="${profile.defaultRestSeconds.DOWN}">
+          </div>
+        </div>
+      </div>
+
+      <button type="button" id="btn-save-profile" class="btn btn-primary btn-large btn-glow mt-4">
+        💾 プロファイル設定を保存
+      </button>
+    </section>
+
+    <!-- マイルーティン設定 -->
+    <section class="card settings-card">
+      <h3 class="card-title">🍽️ マイルーティン（ワンタップ食事）の管理</h3>
+      <div class="routine-manager-list">
+        ${routines
+          .map(
+            (r) => `
+          <div class="routine-manager-item">
+            <div>
+              <span class="font-bold">${escapeHtml(r.name)}</span>
+              <span class="text-sm font-mono text-muted ml-2">P:${r.p}g / F:${r.f}g / C:${r.c}g</span>
+            </div>
+            <button type="button" class="btn-icon btn-delete-routine" data-routine-id="${r.id}" title="削除">
+              🗑
+            </button>
+          </div>
+        `,
+          )
+          .join('')}
+      </div>
+
+      <div class="add-routine-form mt-4">
+        <h4 class="font-bold text-sm text-muted">新規ルーティンの追加</h4>
+        <div class="add-routine-grid">
+          <input type="text" id="routine-new-name" class="input" placeholder="例: プロテインバー">
+          <input type="number" id="routine-new-p" class="input" placeholder="P (g)">
+          <input type="number" id="routine-new-f" class="input" placeholder="F (g)">
+          <input type="number" id="routine-new-c" class="input" placeholder="C (g)">
+          <button type="button" id="btn-add-routine" class="btn btn-outline-cyan">追加</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- サプリメント管理 -->
+    <section class="card settings-card">
+      <h3 class="card-title">💊 サプリメントチェックリスト管理</h3>
+      <div class="supp-manager-chips">
+        ${profile.supplements
+          .map(
+            (s) => `
+          <span class="chip chip-with-delete">
+            ${escapeHtml(s)}
+            <button type="button" class="chip-delete-btn btn-delete-supplement" data-supp-name="${escapeHtml(s)}">×</button>
+          </span>
+        `,
+          )
+          .join('')}
+      </div>
+
+      <div class="add-supp-row mt-3">
+        <input type="text" id="input-new-supplement" class="input" placeholder="例: アシュワガンダ">
+        <button type="button" id="btn-add-supplement" class="btn btn-outline-cyan">サプリ追加</button>
+      </div>
+    </section>
+
+    <!-- データ管理＆バックアップ -->
+    <section class="card settings-card">
+      <h3 class="card-title">💾 データ管理＆バックアップ</h3>
+      <p class="text-muted text-sm">
+        データはブラウザの localStorage に完全保存されています。
+        機種変更時や端末間での引き継ぎには JSON エクスポート / インポートをご利用ください。
+      </p>
+
+      <div class="backup-actions-grid mt-3">
+        <button type="button" id="btn-export-json" class="btn btn-outline-cyan">
+          📥 JSON エクスポート (バックアップ)
+        </button>
+        <button type="button" id="btn-import-json" class="btn btn-outline-cyan">
+          📤 JSON インポート (復元)
+        </button>
+        <input type="file" id="input-file-import" accept=".json" style="display: none;">
+      </div>
+
+      <div class="danger-zone mt-6">
+        <h4 class="text-rose text-sm font-bold">危険ゾーン</h4>
+        <button type="button" id="btn-reset-all" class="btn btn-outline-danger mt-2">
+          全データを初期化
+        </button>
+      </div>
+    </section>
+  `;
+}

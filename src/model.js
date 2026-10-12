@@ -1,0 +1,237 @@
+// @ts-check
+/**
+ * データモデル定義（SPEC.md「4. テーブル定義」および PWA 向けスキーマ）。
+ * 保存形式を変更する場合は storage.js の SCHEMA_VERSION を上げ、migrate() に変換処理を追加すること。
+ */
+
+/** @typedef {'male' | 'female'} Gender */
+/** @typedef {'cut' | 'maintain' | 'bulk'} GoalType */
+/** @typedef {'sedentary' | 'light' | 'moderate' | 'active'} ActivityLevel */
+/** @typedef {'<5h' | '5-6h' | '6-7h' | '7h+'} SleepCategory */
+/** @typedef {'UP' | 'MAIN' | 'HEAVY' | 'DOWN'} SetType */
+
+/**
+ * ユーザープロファイル
+ * @typedef {Object} UserProfile
+ * @property {string} name
+ * @property {number} height                 身長 (cm)
+ * @property {number} currentWeight          現在体重 (kg)
+ * @property {number} targetWeight           目標体重 (kg)
+ * @property {string} targetDate             目標達成予定日 (YYYY-MM-DD)
+ * @property {Gender} gender                 性別
+ * @property {number} age                    年齢
+ * @property {GoalType} goalType             目的（減量 / 維持 / 増量）
+ * @property {ActivityLevel} activityLevel   日常の活動レベル
+ * @property {number} targetCalories         目標総摂取カロリー (kcal)
+ * @property {number} targetP                目標タンパク質 (g)
+ * @property {number} targetF                目標脂質 (g)
+ * @property {number} targetC                目標炭水化物 (g)
+ * @property {string[]} supplements          管理するサプリメント一覧
+ * @property {Record<SetType, number>} defaultRestSeconds セット種別ごとの既定インターバル（秒）
+ */
+
+/**
+ * トレーニングの1セット
+ * @typedef {Object} WorkoutSet
+ * @property {string} id
+ * @property {string} exerciseName
+ * @property {number} weight                 重量 (kg)
+ * @property {number} reps                   回数
+ * @property {SetType} setType               UP / MAIN / HEAVY / DOWN
+ * @property {number} estimated1rm           推定1RM (kg)
+ * @property {string} completedAt            完了時刻 (ISO 8601)
+ */
+
+/**
+ * ワークアウトセッション
+ * @typedef {Object} WorkoutSession
+ * @property {string} id
+ * @property {string} date                   実施日 (YYYY-MM-DD)
+ * @property {string} startTime              開始日時 (ISO 8601)
+ * @property {string | null} endTime         終了日時 (ISO 8601)
+ * @property {number | null} bodyWeight      当日の体重 (kg)
+ * @property {SleepCategory} sleepCategory   前夜の睡眠時間
+ * @property {boolean} preWorkoutCarb        トレ前（1〜2時間前）のエネルギー/糖質補給有無
+ * @property {number} conditionScore         主観的コンディション (1〜5)
+ * @property {WorkoutSet[]} sets             実施セット一覧
+ * @property {string} notes                  メモ・所感
+ */
+
+/**
+ * 食事・PFC入力履歴レコード
+ * @typedef {Object} NutritionLogItem
+ * @property {string} id
+ * @property {string} name                   品目名（例: "胸肉200g", "いつものプロテイン"）
+ * @property {number} p                      タンパク質 (g)
+ * @property {number} f                      脂質 (g)
+ * @property {number} c                      炭水化物 (g)
+ * @property {string} loggedAt               記録時刻 (ISO 8601)
+ */
+
+/**
+ * 1日の栄養実績
+ * @typedef {Object} DailyNutrition
+ * @property {string} id
+ * @property {string} date                   日付 (YYYY-MM-DD)
+ * @property {number} totalP                 当日の合計P (g)
+ * @property {number} totalF                 当日の合計F (g)
+ * @property {number} totalC                 当日の合計C (g)
+ * @property {string[]} completedSupplements 摂取完了したサプリ名リスト
+ * @property {NutritionLogItem[]} logs       内訳ログ
+ */
+
+/**
+ * マイルーティン定義（食事＆サプリのワンタップ登録用）
+ * @typedef {Object} RoutineItem
+ * @property {string} id
+ * @property {string} name                   名称（例: "いつものプロテイン", "クレアチン5g"）
+ * @property {number} p
+ * @property {number} f
+ * @property {number} c
+ * @property {boolean} isSupplement          サプリチェック兼用かどうか
+ */
+
+/**
+ * 保存データ全体 (Schema v1)
+ * @typedef {Object} AppData
+ * @property {number} version
+ * @property {UserProfile} profile
+ * @property {WorkoutSession[]} workouts
+ * @property {DailyNutrition[]} dailyNutrition
+ * @property {RoutineItem[]} routines
+ * @property {string[]} exerciseTemplates
+ */
+
+export const DEFAULT_EXERCISES = Object.freeze([
+  'ベンチプレス',
+  'スクワット',
+  'デッドリフト',
+  'ショルダープレス',
+  '懸垂 (チンニング)',
+  'バーベルベントオーバーロー',
+  'インクラインダンベルプレス',
+  'ダンベルサイドレイズ',
+  'アームカール',
+  'ディップス',
+]);
+
+export const DEFAULT_SUPPLEMENTS = Object.freeze([
+  'クレアチン (5g)',
+  'マルチビタミン＆ミネラル',
+  'EAA / BCAA',
+  'オメガ3 (フィッシュオイル)',
+  'プロテイン (トレ後)',
+]);
+
+/** @returns {string} */
+export function newId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * @param {Partial<UserProfile>} [input]
+ * @returns {UserProfile}
+ */
+export function createProfile(input = {}) {
+  return {
+    name: input.name ? input.name.trim() : 'トレーニー',
+    height: Number(input.height) || 172,
+    currentWeight: Number(input.currentWeight) || 68.0,
+    targetWeight: Number(input.targetWeight) || 65.0,
+    targetDate: input.targetDate || '',
+    gender: input.gender === 'female' ? 'female' : 'male',
+    age: Number(input.age) || 28,
+    goalType: ['cut', 'maintain', 'bulk'].includes(input.goalType || '') ? /** @type {GoalType} */ (input.goalType) : 'cut',
+    activityLevel: ['sedentary', 'light', 'moderate', 'active'].includes(input.activityLevel || '')
+      ? /** @type {ActivityLevel} */ (input.activityLevel)
+      : 'moderate',
+    targetCalories: Number(input.targetCalories) || 2100,
+    targetP: Number(input.targetP) || 140,
+    targetF: Number(input.targetF) || 50,
+    targetC: Number(input.targetC) || 250,
+    supplements: Array.isArray(input.supplements) && input.supplements.length > 0
+      ? [...input.supplements]
+      : [...DEFAULT_SUPPLEMENTS],
+    defaultRestSeconds: {
+      UP: 60,
+      MAIN: 120,
+      HEAVY: 180,
+      DOWN: 60,
+      ...(input.defaultRestSeconds || {}),
+    },
+  };
+}
+
+/**
+ * @param {Partial<RoutineItem> & { name: string }} input
+ * @returns {RoutineItem}
+ */
+export function createRoutineItem(input) {
+  return {
+    id: newId(),
+    name: input.name.trim(),
+    p: Math.max(0, Number(input.p) || 0),
+    f: Math.max(0, Number(input.f) || 0),
+    c: Math.max(0, Number(input.c) || 0),
+    isSupplement: Boolean(input.isSupplement),
+  };
+}
+
+/**
+ * @param {Partial<WorkoutSet> & { exerciseName: string, weight: number, reps: number }} input
+ * @param {number} [estimated1rm]
+ * @returns {WorkoutSet}
+ */
+export function createWorkoutSet(input, estimated1rm = 0) {
+  return {
+    id: newId(),
+    exerciseName: input.exerciseName.trim(),
+    weight: Math.max(0, Number(input.weight) || 0),
+    reps: Math.max(1, Math.round(Number(input.reps) || 1)),
+    setType: ['UP', 'MAIN', 'HEAVY', 'DOWN'].includes(input.setType || '') ? /** @type {SetType} */ (input.setType) : 'MAIN',
+    estimated1rm: Math.max(0, Number(estimated1rm) || 0),
+    completedAt: input.completedAt || new Date().toISOString(),
+  };
+}
+
+/**
+ * @param {Partial<WorkoutSession>} [input]
+ * @param {Date} [now]
+ * @returns {WorkoutSession}
+ */
+export function createWorkoutSession(input = {}, now = new Date()) {
+  const dateStr = now.toISOString().slice(0, 10);
+  return {
+    id: newId(),
+    date: input.date || dateStr,
+    startTime: input.startTime || now.toISOString(),
+    endTime: input.endTime ?? null,
+    bodyWeight: input.bodyWeight !== undefined && input.bodyWeight !== null ? Number(input.bodyWeight) : null,
+    sleepCategory: ['<5h', '5-6h', '6-7h', '7h+'].includes(input.sleepCategory || '')
+      ? /** @type {SleepCategory} */ (input.sleepCategory)
+      : '6-7h',
+    preWorkoutCarb: input.preWorkoutCarb !== undefined ? Boolean(input.preWorkoutCarb) : true,
+    conditionScore: Number(input.conditionScore) >= 1 && Number(input.conditionScore) <= 5 ? Number(input.conditionScore) : 4,
+    sets: Array.isArray(input.sets) ? [...input.sets] : [],
+    notes: typeof input.notes === 'string' ? input.notes.trim() : '',
+  };
+}
+
+/**
+ * @param {string} date YYYY-MM-DD
+ * @returns {DailyNutrition}
+ */
+export function createDailyNutrition(date) {
+  return {
+    id: newId(),
+    date,
+    totalP: 0,
+    totalF: 0,
+    totalC: 0,
+    completedSupplements: [],
+    logs: [],
+  };
+}

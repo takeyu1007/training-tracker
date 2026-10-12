@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Training Tracker - 筋トレ＆PFC・コンディション管理</title>
+  <meta name="description" content="トレーニング記録と栄養（PFC）・日々のコンディション（睡眠・トレ前糖質等）をシームレスに連携させ、推定1RMと相関を可視化するスマートフィットネスアプリ">
+  <meta name="theme-color" content="#070b18">
+
+  <!-- PWA & Apple Touch Icons -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="./styles/tokens.css">
+  <link rel="stylesheet" href="./styles/app.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-row">
+        <img src="./icons/icon-192.png" alt="Training Tracker" class="brand-icon">
+        <div>
+          <h1 class="brand-title">Training Tracker</h1>
+          <span class="brand-subtitle">Smart Fitness &amp; Macro Analytics</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Tab Contents -->
+    <main id="main-content">
+      <!-- Tab 1: Workout -->
+      <div id="tab-workout" class="tab-panel is-active" role="tabpanel"></div>
+
+      <!-- Tab 2: Nutrition -->
+      <div id="tab-nutrition" class="tab-panel" role="tabpanel"></div>
+
+      <!-- Tab 3: Analytics -->
+      <div id="tab-analytics" class="tab-panel" role="tabpanel"></div>
+
+      <!-- Tab 4: Settings -->
+      <div id="tab-settings" class="tab-panel" role="tabpanel"></div>
+    </main>
+  </div>
+
+  <!-- Floating Mini Timer Bar -->
+  <div id="timer-mini-bar" class="timer-mini-bar">
+    <div class="timer-mini-info">
+      <span class="nav-icon">⏱</span>
+      <div>
+        <div id="timer-mini-time" class="timer-mini-time font-mono">02:00</div>
+        <div id="timer-mini-label" class="timer-mini-label">インターバル休憩</div>
+      </div>
+    </div>
+    <div class="timer-mini-actions">
+      <button type="button" class="btn btn-sm btn-outline-cyan">拡大</button>
+      <button type="button" class="btn btn-sm btn-icon timer-mini-stop" title="タイマー終了">✕</button>
+    </div>
+    <div id="timer-mini-progress" class="timer-mini-progress-bar"></div>
+  </div>
+
+  <!-- Full Interval Timer Modal -->
+  <div id="timer-modal" class="timer-modal" role="dialog" aria-modal="true">
+    <div class="timer-modal-dialog">
+      <button type="button" id="timer-modal-close" class="timer-modal-close" aria-label="閉じる">✕</button>
+      <h3 class="card-title justify-center">⏱ インターバルタイマー</h3>
+
+      <div class="timer-dial-wrap">
+        <svg class="timer-dial-svg" width="220" height="220" viewBox="0 0 220 220">
+          <circle class="timer-circle-bg" cx="110" cy="110" r="90"></circle>
+          <circle id="timer-progress-circle" class="timer-circle-fg" cx="110" cy="110" r="90"></circle>
+        </svg>
+        <div class="timer-dial-inner">
+          <div id="timer-modal-time" class="timer-modal-time font-mono">02:00</div>
+          <div id="timer-modal-label" class="timer-modal-label">MAINセット休憩</div>
+        </div>
+      </div>
+
+      <!-- Quick Presets -->
+      <div class="timer-modal-presets">
+        <button type="button" class="chip timer-preset-chip" data-seconds="60">60秒 (UP)</button>
+        <button type="button" class="chip timer-preset-chip" data-seconds="90">90秒</button>
+        <button type="button" class="chip timer-preset-chip" data-seconds="120">120秒 (MAIN)</button>
+        <button type="button" class="chip timer-preset-chip" data-seconds="180">180秒 (HEAVY)</button>
+      </div>
+
+      <!-- Control buttons -->
+      <div class="timer-modal-controls">
+        <button type="button" id="timer-btn-minus30" class="btn btn-sm btn-xs">-30s</button>
+        <button type="button" id="timer-btn-pause" class="btn btn-primary btn-sm">⏸ 一時停止</button>
+        <button type="button" id="timer-btn-plus30" class="btn btn-sm btn-xs">+30s</button>
+        <button type="button" id="timer-btn-stop" class="btn btn-outline-danger btn-sm">終了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <nav class="bottom-nav" aria-label="メインナビゲーション">
+    <button type="button" class="nav-tab-btn is-active" data-tab="workout" aria-selected="true">
+      <span class="nav-icon">🏋️</span>
+      <span>ワークアウト</span>
+    </button>
+    <button type="button" class="nav-tab-btn" data-tab="nutrition" aria-selected="false">
+      <span class="nav-icon">🥗</span>
+      <span>PFC・栄養</span>
+    </button>
+    <button type="button" class="nav-tab-btn" data-tab="analytics" aria-selected="false">
+      <span class="nav-icon">📊</span>
+      <span>分析</span>
+    </button>
+    <button type="button" class="nav-tab-btn" data-tab="settings" aria-selected="false">
+      <span class="nav-icon">⚙️</span>
+      <span>設定</span>
+    </button>
+  </nav>
+
+  <!-- Entry Script -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

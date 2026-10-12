@@ -1,0 +1,45 @@
+{
+  "name": "Training Tracker - 筋トレ＆PFC管理",
+  "short_name": "TrainTracker",
+  "description": "トレーニング記録と栄養（PFC）・日々のコンディションを連携させ、推定1RMと相関を可視化するスマートフィットネスアプリ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#070b18",
+  "theme_color": "#070b18",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "ワークアウト記録",
+      "short_name": "トレ記録",
+      "url": "./#workout",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "PFC・栄養記録",
+      "short_name": "PFC記録",
+      "url": "./#nutrition",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

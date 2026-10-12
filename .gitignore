@@ -1,0 +1,15 @@
+# 非公開資料（調査メモ・元仕様書など）。公開リポジトリに含めない
+docs/private/
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 将来 Vite 等へ移行した場合
+node_modules/
+dist/
+
+# AI エージェントのローカル設定
+.gemini/
