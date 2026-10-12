@@ -6,7 +6,7 @@ AI エージェント向けの開発ルール。実装前に必ず読むこと�
 トレーニング記録と栄養（PFC）・日々のコンディション（睡眠・トレ前糖質等）をシームレスに紐付け、
 推定1RMや相関を可視化する個人用 PWA。
 利用者は開発者本人（Android）および友人（iOS/PC）。
-GitHub Pages で配信可能な完全クライアント完結型設計。
+GitHub Pages で `https://takeyu1007.github.io/training-tracker/` に公開している。
 
 ## 技術スタック
 - 素の HTML / CSS / JavaScript（ES Modules）。**ビルド工程・外部 npm 依存パッケージは追加しない**（Vanilla Web Standards）。
