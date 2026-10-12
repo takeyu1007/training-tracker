@@ -9,6 +9,7 @@
 /** @typedef {'sedentary' | 'light' | 'moderate' | 'active'} ActivityLevel */
 /** @typedef {'<5h' | '5-6h' | '6-7h' | '7h+'} SleepCategory */
 /** @typedef {'UP' | 'MAIN' | 'HEAVY' | 'DOWN'} SetType */
+/** @typedef {'胸' | '背中' | '脚' | '肩' | '腕' | '腹' | 'その他'} MuscleCategory */
 
 /**
  * ユーザープロファイル
@@ -16,6 +17,7 @@
  * @property {string} name
  * @property {number} height                 身長 (cm)
  * @property {number} currentWeight          現在体重 (kg)
+ * @property {number} [startWeight]          開始時体重 (kg)
  * @property {number} targetWeight           目標体重 (kg)
  * @property {string} targetDate             目標達成予定日 (YYYY-MM-DD)
  * @property {Gender} gender                 性別
@@ -61,10 +63,11 @@
  */
 
 /**
- * 種目マスター（種目別の既定休憩時間を含む）
+ * 種目マスター（種目別の部位カテゴリおよび既定休憩時間を含む）
  * @typedef {Object} ExerciseTemplate
  * @property {string} id
  * @property {string} name                   種目名
+ * @property {MuscleCategory} category       部位カテゴリ
  * @property {number} defaultRestSeconds     この種目の既定休憩時間（秒）
  */
 
@@ -103,7 +106,7 @@
  */
 
 /**
- * 保存データ全体 (Schema v2)
+ * 保存データ全体 (Schema v3)
  * @typedef {Object} AppData
  * @property {number} version
  * @property {UserProfile} profile
@@ -113,17 +116,18 @@
  * @property {ExerciseTemplate[]} exerciseTemplates
  */
 
+/** @type {ReadonlyArray<{ name: string, category: MuscleCategory, defaultRestSeconds: number }>} */
 export const DEFAULT_EXERCISES = Object.freeze([
-  { name: 'ベンチプレス', defaultRestSeconds: 150 },
-  { name: 'スクワット', defaultRestSeconds: 180 },
-  { name: 'デッドリフト', defaultRestSeconds: 180 },
-  { name: 'ショルダープレス', defaultRestSeconds: 120 },
-  { name: '懸垂 (チンニング)', defaultRestSeconds: 120 },
-  { name: 'バーベルベントオーバーロー', defaultRestSeconds: 120 },
-  { name: 'インクラインダンベルプレス', defaultRestSeconds: 120 },
-  { name: 'ダンベルサイドレイズ', defaultRestSeconds: 60 },
-  { name: 'アームカール', defaultRestSeconds: 60 },
-  { name: 'ディップス', defaultRestSeconds: 90 },
+  { name: 'ベンチプレス', category: /** @type {MuscleCategory} */ ('胸'), defaultRestSeconds: 150 },
+  { name: 'スクワット', category: /** @type {MuscleCategory} */ ('脚'), defaultRestSeconds: 180 },
+  { name: 'デッドリフト', category: /** @type {MuscleCategory} */ ('背中'), defaultRestSeconds: 180 },
+  { name: 'ショルダープレス', category: /** @type {MuscleCategory} */ ('肩'), defaultRestSeconds: 120 },
+  { name: '懸垂 (チンニング)', category: /** @type {MuscleCategory} */ ('背中'), defaultRestSeconds: 120 },
+  { name: 'バーベルベントオーバーロー', category: /** @type {MuscleCategory} */ ('背中'), defaultRestSeconds: 120 },
+  { name: 'インクラインダンベルプレス', category: /** @type {MuscleCategory} */ ('胸'), defaultRestSeconds: 120 },
+  { name: 'ダンベルサイドレイズ', category: /** @type {MuscleCategory} */ ('肩'), defaultRestSeconds: 60 },
+  { name: 'アームカール', category: /** @type {MuscleCategory} */ ('腕'), defaultRestSeconds: 60 },
+  { name: 'ディップス', category: /** @type {MuscleCategory} */ ('胸'), defaultRestSeconds: 90 },
 ]);
 
 export const DEFAULT_SUPPLEMENTS = Object.freeze([
@@ -145,12 +149,16 @@ export function newId() {
 /**
  * @param {string} name
  * @param {number} [defaultRestSeconds]
+ * @param {MuscleCategory} [category]
  * @returns {ExerciseTemplate}
  */
-export function createExerciseTemplate(name, defaultRestSeconds = 120) {
+export function createExerciseTemplate(name, defaultRestSeconds = 120, category = 'その他') {
+  const validCategories = ['胸', '背中', '脚', '肩', '腕', '腹', 'その他'];
+  const cat = validCategories.includes(category) ? category : 'その他';
   return {
     id: newId(),
     name: name.trim(),
+    category: cat,
     defaultRestSeconds: Math.max(10, Number(defaultRestSeconds) || 120),
   };
 }
@@ -160,10 +168,13 @@ export function createExerciseTemplate(name, defaultRestSeconds = 120) {
  * @returns {UserProfile}
  */
 export function createProfile(input = {}) {
+  const currentWeight = Number(input.currentWeight) || 68.0;
+  const startWeight = input.startWeight !== undefined ? Number(input.startWeight) : currentWeight;
   return {
     name: input.name ? input.name.trim() : 'トレーニー',
     height: Number(input.height) || 172,
-    currentWeight: Number(input.currentWeight) || 68.0,
+    currentWeight,
+    startWeight,
     targetWeight: Number(input.targetWeight) || 65.0,
     targetDate: input.targetDate || '',
     gender: input.gender === 'female' ? 'female' : 'male',

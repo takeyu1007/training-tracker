@@ -761,21 +761,36 @@ body::after {
 }
 
 .btn-routine-quick {
-  background: hsl(225 35% 12% / 0.8);
+  background: hsl(225 35% 13% / 0.9);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   padding: 10px 14px;
   text-align: left;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   cursor: pointer;
   transition: all var(--duration-fast);
 }
 
+.btn-routine-quick .routine-title {
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.btn-routine-quick .routine-macros {
+  color: #38bdf8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .btn-routine-quick:hover {
   border-color: var(--color-primary);
-  background: hsl(225 35% 16% / 0.9);
+  background: hsl(225 35% 18% / 0.95);
+  box-shadow: 0 4px 16px -2px hsl(24 95% 53% / 0.25);
 }
 
 .quick-inputs-row {
@@ -1377,3 +1392,404 @@ body::after {
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* ==========================================================================
+   Safety Warning Modal
+   ========================================================================== */
+.safety-modal {
+  position: fixed;
+  inset: 0;
+  background: hsl(225 40% 6% / 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-4);
+}
+
+.safety-modal-dialog {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  max-width: 500px;
+  width: 100%;
+  padding: 24px;
+  box-shadow: var(--shadow-modal);
+  animation: modalPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.safety-modal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.safety-modal-icon {
+  font-size: 28px;
+}
+
+.safety-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.safety-alert-banner {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+}
+
+.safety-alert-banner.banner-danger {
+  background: hsl(346 87% 65% / 0.15);
+  border: 1px solid var(--color-rose);
+  color: #fda4af;
+}
+
+.safety-alert-banner.banner-warning {
+  background: hsl(38 92% 50% / 0.15);
+  border: 1px solid var(--color-amber);
+  color: #fde047;
+}
+
+.safety-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.safety-stat-box {
+  background: hsl(225 35% 10% / 0.7);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.safety-stat-box .label {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.safety-stat-box .val {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.safety-advice-card {
+  background: hsl(190 95% 42% / 0.08);
+  border: 1px solid hsl(190 95% 42% / 0.3);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+
+.safety-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+/* ==========================================================================
+   Milestone Tracking & Calorie Budget
+   ========================================================================== */
+.milestone-days-badge {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.milestone-weights-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.milestone-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: hsl(225 35% 18% / 0.7);
+  overflow: hidden;
+}
+
+.flex-between {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calorie-budget-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.calorie-box {
+  background: hsl(225 35% 10% / 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.calorie-box-label {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.calorie-box-val {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+/* ==========================================================================
+   BIG3 Total Score & Club Badges
+   ========================================================================== */
+.big3-score-hero {
+  text-align: center;
+  padding: 14px;
+  background: radial-gradient(circle at center, hsl(38 92% 50% / 0.12) 0%, transparent 70%);
+  border-radius: var(--radius-md);
+}
+
+.big3-total-number {
+  font-size: 40px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.02em;
+  text-shadow: 0 0 24px rgba(249, 115, 22, 0.4);
+}
+
+.big3-total-number .unit {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.big3-breakdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+.big3-item {
+  background: hsl(225 35% 10% / 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.big3-item .big3-label {
+  font-size: 11px;
+  color: var(--color-muted);
+}
+
+.big3-item .big3-val {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.big3-club-badge {
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.big3-club-badge.club-500kg {
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+  color: #000;
+  box-shadow: 0 0 14px rgba(251, 191, 36, 0.5);
+}
+
+.big3-club-badge.club-400kg {
+  background: linear-gradient(135deg, #38bdf8, #0284c7);
+  color: #000;
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+}
+
+.big3-club-badge.club-300kg {
+  background: linear-gradient(135deg, #f97316, #ea580c);
+  color: #fff;
+  box-shadow: 0 0 14px rgba(249, 115, 22, 0.4);
+}
+
+.big3-club-badge.club-road {
+  background: hsl(225 35% 20%);
+  color: #94a3b8;
+}
+
+/* ==========================================================================
+   Muscle Volume Meters
+   ========================================================================== */
+.volume-meters-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.volume-meter-row {
+  display: grid;
+  grid-template-columns: 85px 1fr 85px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.volume-meter-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.volume-meter-track {
+  height: 8px;
+  background: hsl(225 35% 18% / 0.6);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.volume-meter-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+}
+
+.volume-meter-fill.status-optimal {
+  background: var(--color-emerald);
+}
+
+.volume-meter-fill.status-low {
+  background: hsl(225 35% 35%);
+}
+
+.volume-meter-fill.status-high {
+  background: var(--color-amber);
+}
+
+.volume-status-tag {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.volume-status-tag.status-optimal {
+  background: hsl(158 64% 52% / 0.15);
+  color: var(--color-emerald);
+}
+
+.volume-status-tag.status-low {
+  background: hsl(225 35% 20%);
+  color: var(--color-muted);
+}
+
+.volume-status-tag.status-high {
+  background: hsl(38 92% 50% / 0.15);
+  color: var(--color-amber);
+}
+
+/* ==========================================================================
+   Category Badges
+   ========================================================================== */
+.badge-category {
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.badge-cat-胸 {
+  background: hsl(346 87% 65% / 0.18);
+  color: #fb7185;
+}
+
+.badge-cat-背中 {
+  background: hsl(190 95% 42% / 0.18);
+  color: #38bdf8;
+}
+
+.badge-cat-脚 {
+  background: hsl(158 64% 52% / 0.18);
+  color: #34d399;
+}
+
+.badge-cat-肩 {
+  background: hsl(265 89% 66% / 0.18);
+  color: #c084fc;
+}
+
+.badge-cat-腕 {
+  background: hsl(38 92% 50% / 0.18);
+  color: #fbbf24;
+}
+
+.badge-cat-腹 {
+  background: hsl(180 80% 45% / 0.18);
+  color: #2dd4bf;
+}
+
+.badge-cat-その他 {
+  background: hsl(225 35% 20% / 0.5);
+  color: #94a3b8;
+}
+
+/* ==========================================================================
+   Weekly Nutrition Average Card
+   ========================================================================== */
+.weekly-macros-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  text-align: center;
+}
+
+.weekly-macro-item {
+  background: hsl(225 35% 10% / 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.weekly-macro-item .label {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.weekly-avg-badge {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.weekly-avg-badge.is-under {
+  background: hsl(158 64% 52% / 0.15);
+  color: var(--color-emerald);
+}
+
+.weekly-avg-badge.is-over {
+  background: hsl(346 87% 65% / 0.15);
+  color: var(--color-rose);
+}
+

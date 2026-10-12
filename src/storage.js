@@ -17,7 +17,7 @@ import {
 
 export const STORAGE_KEY = 'trainingTracker.data';
 export const BACKUP_KEY_PREFIX = 'trainingTracker.backup.';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * @typedef {Pick<Storage, 'getItem' | 'setItem'>} StorageLike
@@ -64,7 +64,7 @@ export function emptyData() {
         isSupplement: true,
       },
     ],
-    exerciseTemplates: DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds)),
+    exerciseTemplates: DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds, e.category)),
   };
 }
 
@@ -139,13 +139,22 @@ function normalizeWorkout(w) {
  */
 function normalizeExerciseTemplate(e) {
   if (!e) return null;
+  const validCategories = ['胸', '背中', '脚', '肩', '腕', '腹', 'その他'];
   if (typeof e === 'string' && e.trim().length > 0) {
-    return createExerciseTemplate(e.trim(), 120);
+    const match = DEFAULT_EXERCISES.find((def) => def.name === e.trim());
+    return createExerciseTemplate(e.trim(), 120, match ? match.category : 'その他');
   }
   if (typeof e === 'object' && typeof e.name === 'string' && e.name.trim().length > 0) {
+    const cleanName = e.name.trim();
+    let cat = validCategories.includes(e.category) ? e.category : null;
+    if (!cat) {
+      const match = DEFAULT_EXERCISES.find((def) => def.name === cleanName);
+      cat = match ? match.category : 'その他';
+    }
     return {
       id: typeof e.id === 'string' ? e.id : newId(),
-      name: e.name.trim(),
+      name: cleanName,
+      category: /** @type {import('./model.js').MuscleCategory} */ (cat),
       defaultRestSeconds: Math.max(10, Number(e.defaultRestSeconds) || 120),
     };
   }
@@ -232,9 +241,21 @@ export function migrate(raw) {
     };
   }
 
+  // v2 -> v3 移行 (startWeight と部位 category の付与)
+  if (data.version === 2) {
+    data = {
+      ...data,
+      version: 3,
+      profile: {
+        ...data.profile,
+        startWeight: data.profile?.startWeight !== undefined ? Number(data.profile.startWeight) : Number(data.profile?.currentWeight) || 68.0,
+      },
+    };
+  }
+
   const rawTemplates = Array.isArray(data.exerciseTemplates) && data.exerciseTemplates.length > 0
     ? data.exerciseTemplates
-    : DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds));
+    : DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds, e.category));
 
   return {
     version: SCHEMA_VERSION,

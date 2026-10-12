@@ -3,7 +3,7 @@
  * PFC・栄養管理 UI モジュール
  */
 
-import { calculateRemainingPFC, pfcToCalories } from '../calc.js';
+import { calculateRemainingPFC, pfcToCalories, calculateWeeklyNutritionAverage } from '../calc.js';
 import { escapeHtml, formatCalories, formatDate, formatTime } from '../format.js';
 import { playSuccessChime } from '../sound.js';
 import { showToast } from './toast.js';
@@ -135,6 +135,7 @@ export function renderNutrition() {
   };
 
   const metrics = calculateRemainingPFC(targets, daily);
+  const weeklyAvg = calculateWeeklyNutritionAverage(state.dailyNutrition, new Date(selectedDateStr));
   const routines = state.routines;
 
   container.innerHTML = `
@@ -201,6 +202,45 @@ export function renderNutrition() {
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- 直近7日間の平均栄養実績 -->
+    <section class="card weekly-nutrition-card">
+      <div class="card-header-flex">
+        <div>
+          <h3 class="card-title">📊 直近7日間の平均栄養実績</h3>
+          <span class="text-muted text-sm">週平均カロリーと目標PFCのバランス (${weeklyAvg.daysLogged}日記録)</span>
+        </div>
+        <div class="weekly-avg-badge ${weeklyAvg.avgCalories > profile.targetCalories ? 'is-over' : 'is-under'}">
+          ${weeklyAvg.daysLogged > 0 ? `平均 ${weeklyAvg.avgCalories.toLocaleString()} kcal/日` : 'データ収集中'}
+        </div>
+      </div>
+
+      ${
+        weeklyAvg.daysLogged === 0
+          ? `
+        <p class="text-sm text-muted mt-2">過去7日間の食事記録が登録されると、週平均のPFCバランスが表示されます。</p>
+      `
+          : `
+        <div class="weekly-macros-grid mt-3">
+          <div class="weekly-macro-item">
+            <span class="label text-p">平均 Protein</span>
+            <span class="val font-mono"><strong>${weeklyAvg.avgP}</strong>g</span>
+            <span class="sub text-xs text-muted">目標: ${profile.targetP}g</span>
+          </div>
+          <div class="weekly-macro-item">
+            <span class="label text-f">平均 Fat</span>
+            <span class="val font-mono"><strong>${weeklyAvg.avgF}</strong>g</span>
+            <span class="sub text-xs text-muted">目標: ${profile.targetF}g</span>
+          </div>
+          <div class="weekly-macro-item">
+            <span class="label text-c">平均 Carb</span>
+            <span class="val font-mono"><strong>${weeklyAvg.avgC}</strong>g</span>
+            <span class="sub text-xs text-muted">目標: ${profile.targetC}g</span>
+          </div>
+        </div>
+      `
+      }
     </section>
 
     <!-- マイルーティン（ワンタップ加算） -->

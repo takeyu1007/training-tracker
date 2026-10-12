@@ -96,6 +96,31 @@
     </div>
   </div>
 
+  <!-- Safety Warning Modal Dialog -->
+  <div id="safety-modal" class="safety-modal" role="dialog" aria-modal="true" aria-hidden="true" style="display: none;">
+    <div class="safety-modal-dialog">
+      <div class="safety-modal-header">
+        <span class="safety-modal-icon">⚠️</span>
+        <div>
+          <h3 id="safety-modal-title" class="safety-modal-title">ペースに関する警告</h3>
+          <span class="text-sm text-muted">医学・スポーツ栄養学基準の安全確認</span>
+        </div>
+      </div>
+      <div id="safety-modal-body" class="safety-modal-body"></div>
+      <div class="safety-modal-actions">
+        <button type="button" id="btn-safety-auto-adjust" class="btn btn-primary btn-glow">
+          ⚡ 推奨ペースに自動修正
+        </button>
+        <button type="button" id="btn-safety-proceed-anyway" class="btn btn-outline-danger">
+          リスクを理解してこのまま設定
+        </button>
+        <button type="button" id="btn-safety-cancel" class="btn btn-ghost">
+          キャンセル（見直す）
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Bottom Navigation -->
   <nav class="bottom-nav" aria-label="メインナビゲーション">
     <button type="button" class="nav-tab-btn is-active" data-tab="workout" aria-selected="true">

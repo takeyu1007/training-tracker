@@ -343,9 +343,10 @@ export function createStore(storage, options = {}) {
      * 種目の追加
      * @param {string} name
      * @param {number} [defaultRestSeconds]
+     * @param {import('./model.js').MuscleCategory} [category]
      * @returns {ExerciseTemplate | null}
      */
-    addExerciseTemplate(name, defaultRestSeconds = 120) {
+    addExerciseTemplate(name, defaultRestSeconds = 120, category = 'その他') {
       const clean = name.trim();
       if (!clean) return null;
       const exists = state.exerciseTemplates.some(
@@ -353,7 +354,7 @@ export function createStore(storage, options = {}) {
       );
       if (exists) return null;
 
-      const template = createExerciseTemplate(clean, defaultRestSeconds);
+      const template = createExerciseTemplate(clean, defaultRestSeconds, category);
       state = {
         ...state,
         exerciseTemplates: [...state.exerciseTemplates, template],

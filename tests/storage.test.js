@@ -156,18 +156,20 @@ test('storage: migrate v1 data to v2 with exercise templates and planned sets', 
   };
 
   const migrated = migrate(v1Data);
-  assert.equal(migrated.version, 2);
-  // exerciseTemplates should now be objects with defaultRestSeconds
+  assert.equal(migrated.version, 3);
+  // exerciseTemplates should now be objects with defaultRestSeconds and category
   assert.equal(migrated.exerciseTemplates.length, 2);
   assert.equal(migrated.exerciseTemplates[0].name, 'ベンチプレス');
+  assert.equal(migrated.exerciseTemplates[0].category, '胸');
   assert.ok(migrated.exerciseTemplates[0].defaultRestSeconds > 0);
+  assert.equal(migrated.profile.startWeight, 65);
   // sets should have isCompleted: true
   assert.equal(migrated.workouts[0].sets[0].isCompleted, true);
   assert.equal(migrated.workouts[0].sets[0].targetWeight, 70);
   assert.equal(migrated.workouts[0].sets[0].targetReps, 10);
 });
 
-test('store: addPlannedSets, completeSet, uncompleteSet and custom exercise rest times', () => {
+test('store: addPlannedSets, completeSet, uncompleteSet and custom exercise rest times with category', () => {
   const storage = createMemoryStorage();
   const store = createStore(storage);
 
@@ -193,13 +195,15 @@ test('store: addPlannedSets, completeSet, uncompleteSet and custom exercise rest
   assert.equal(completed.reps, 10);
   assert.equal(completed.estimated1rm, 133.3);
 
-  // 3. 種目ごとの休憩時間の追加・取得
-  const addedTemplate = store.addExerciseTemplate('ヒップスラスト', 180);
+  // 3. 種目ごとの休憩時間・部位カテゴリの追加・取得
+  const addedTemplate = store.addExerciseTemplate('ヒップスラスト', 180, '脚');
   assert.ok(addedTemplate);
   assert.equal(addedTemplate.name, 'ヒップスラスト');
   assert.equal(addedTemplate.defaultRestSeconds, 180);
+  assert.equal(addedTemplate.category, '脚');
 
   const found = store.getExerciseTemplate('ヒップスラスト');
   assert.ok(found);
   assert.equal(found.defaultRestSeconds, 180);
+  assert.equal(found.category, '脚');
 });

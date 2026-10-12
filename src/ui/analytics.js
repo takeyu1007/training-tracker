@@ -7,7 +7,15 @@
  * - ワークアウト履歴タイムライン
  */
 
-import { analyzeConditionInsights, calculateSessionVolume, suggestProgressiveOverload } from '../calc.js';
+import {
+  analyzeConditionInsights,
+  calculateSessionVolume,
+  suggestProgressiveOverload,
+  calculateWeightPace,
+  calculate7DayMovingAverage,
+  calculateBig3Total,
+  calculateWeeklyMuscleVolume,
+} from '../calc.js';
 import { escapeHtml, formatDate, formatTime } from '../format.js';
 
 /** @type {import('../store.js').Store} */
@@ -57,9 +65,24 @@ export function renderAnalytics() {
   if (!container || !storeInstance) return;
 
   const state = storeInstance.getState();
+  const profile = state.profile;
   const workouts = state.workouts;
   const insights = analyzeConditionInsights(workouts);
   const exerciseTemplates = state.exerciseTemplates;
+
+  // 1. マイルストーン＆カロリー計算
+  const pace = calculateWeightPace(
+    profile.startWeight !== undefined ? profile.startWeight : profile.currentWeight,
+    profile.currentWeight,
+    profile.targetWeight,
+    profile.targetDate,
+  );
+
+  // 2. BIG3 トータル推定MAXスコア
+  const big3 = calculateBig3Total(workouts);
+
+  // 3. 週間部位別ボリュームメーター
+  const weeklyVolume = calculateWeeklyMuscleVolume(workouts, exerciseTemplates);
 
   const exerciseNames = exerciseTemplates.map((e) => e.name);
 
@@ -75,12 +98,69 @@ export function renderAnalytics() {
   });
 
   container.innerHTML = `
-    <!-- チャートセクション -->
+    <!-- 減量・増量マイルストーン＆必要カロリー追跡 -->
+    <section class="card milestone-card">
+      <div class="card-header-flex">
+        <div>
+          <h3 class="card-title">🎯 減量・増量マイルストーン</h3>
+          <span class="text-muted text-sm">目標達成期日と消費カロリー（7,200kcal/kg則）の予実管理</span>
+        </div>
+        <div class="milestone-days-badge ${pace.daysRemaining > 0 ? 'badge-primary' : 'badge-muted'}">
+          ${pace.daysRemaining > 0 ? `あと ${pace.daysRemaining}日` : (profile.targetDate ? '本日目標日' : '期日未設定')}
+        </div>
+      </div>
+
+      ${
+        !profile.targetDate
+          ? `
+        <div class="milestone-empty-box mt-3 text-center">
+          <p class="text-sm text-muted">「⚙️ 設定」タブで目標体重と目標達成予定日を入力すると、ここに進捗率と必要カロリー消費ペースがリアルタイム表示されます。</p>
+        </div>
+      `
+          : `
+        <!-- 体重進捗ゲージ -->
+        <div class="milestone-progress-section mt-3">
+          <div class="milestone-weights-row font-mono text-sm">
+            <span class="weight-point">開始: <strong>${profile.startWeight || profile.currentWeight}kg</strong></span>
+            <span class="weight-point text-cyan">現在: <strong>${profile.currentWeight}kg</strong></span>
+            <span class="weight-point text-emerald">目標: <strong>${profile.targetWeight}kg</strong></span>
+          </div>
+
+          <div class="progress-bar-track milestone-track mt-2">
+            <div class="progress-bar-fill fill-cyan" style="width: ${pace.progressPercent}%"></div>
+          </div>
+
+          <div class="milestone-percent-row mt-1 text-xs text-muted flex-between">
+            <span>進捗率: <strong class="text-cyan font-mono">${pace.progressPercent}%</strong></span>
+            <span>残り重量: <strong class="font-mono ${pace.direction === 'cut' ? 'text-amber' : 'text-emerald'}">${pace.weightRemaining}kg</strong> (${pace.direction === 'cut' ? '減量' : pace.direction === 'bulk' ? '増量' : '維持'})</span>
+          </div>
+        </div>
+
+        <!-- 必要カロリー計算サマリー -->
+        <div class="calorie-budget-grid mt-4">
+          <div class="calorie-box">
+            <span class="calorie-box-label">目標達成までの総調整熱量</span>
+            <span class="calorie-box-val font-mono text-cyan">${pace.totalCaloriesNeeded.toLocaleString()} <small>kcal</small></span>
+            <span class="calorie-box-sub text-xs text-muted">${pace.weightRemaining}kg × 7,200kcal</span>
+          </div>
+          <div class="calorie-box">
+            <span class="calorie-box-label">1日あたりの目標カロリー調整</span>
+            <span class="calorie-box-val font-mono ${pace.direction === 'cut' ? 'text-rose' : 'text-emerald'}">
+              ${pace.daysRemaining > 0 ? `${pace.direction === 'cut' ? '-' : '+'}${pace.dailyCalorieAdjustment.toLocaleString()}` : '0'} <small>kcal/日</small>
+            </span>
+            <span class="calorie-box-sub text-xs text-muted">${pace.daysRemaining > 0 ? `残り${pace.daysRemaining}日均等ペース` : '期日終了'}</span>
+          </div>
+        </div>
+      `
+      }
+    </section>
+
+    <!-- チャートセクション (体重 + 7日移動平均 + 推定1RM) -->
     <section class="card chart-card">
       <div class="card-header-flex">
         <div>
-          <h3 class="card-title">📈 体重推移 vs 推定1RM</h3>
-          <span class="text-muted text-sm">減量/増量幅と筋出力（推定MAX）の相関を追跡</span>
+          <h3 class="card-title">📈 体重推移 vs 推定1RM (7日移動平均線つき)</h3>
+          <span class="text-muted text-sm">日々の水分変動を平滑化した実質トレンドと筋出力を追跡</span>
         </div>
         <select id="chart-exercise-select" class="input input-sm">
           ${exerciseNames.map((ex) => `<option value="${escapeHtml(ex)}" ${ex === selectedExercise ? 'selected' : ''}>${escapeHtml(ex)}</option>`).join('')}
@@ -88,12 +168,83 @@ export function renderAnalytics() {
       </div>
 
       <div class="chart-legend">
-        <span class="legend-item text-cyan">● 体重 (kg / 左軸)</span>
-        <span class="legend-item text-orange">● 推定1RM (kg / 右軸)</span>
+        <span class="legend-item text-cyan">● 体重 (kg)</span>
+        <span class="legend-item text-sky font-mono">┄ 7日移動平均</span>
+        <span class="legend-item text-orange">● 推定1RM (kg)</span>
       </div>
 
       <div class="canvas-container">
         <canvas id="analytics-canvas" width="800" height="340"></canvas>
+      </div>
+    </section>
+
+    <!-- BIG3 トータル推定MAXスコア -->
+    <section class="card big3-card">
+      <div class="card-header-flex">
+        <div>
+          <h3 class="card-title">🏆 BIG3 トータル推定MAXスコア</h3>
+          <span class="text-muted text-sm">ベンチプレス + スクワット + デッドリフト の最高推定1RM合計</span>
+        </div>
+        <div class="big3-club-badge ${big3.clubLevel === '500kg Club' ? 'club-500kg' : big3.clubLevel === '400kg Club' ? 'club-400kg' : big3.clubLevel === '300kg Club' ? 'club-300kg' : 'club-road'}">
+          ${escapeHtml(big3.clubLevel)}
+        </div>
+      </div>
+
+      <div class="big3-score-hero mt-3">
+        <div class="big3-total-number font-mono">
+          ${big3.total > 0 ? big3.total : 0} <span class="unit">kg</span>
+        </div>
+      </div>
+
+      <div class="big3-breakdown-grid mt-3">
+        <div class="big3-item">
+          <span class="big3-label">ベンチプレス</span>
+          <span class="big3-val font-mono text-cyan">${big3.benchMax > 0 ? `${big3.benchMax} kg` : '未記録'}</span>
+        </div>
+        <div class="big3-item">
+          <span class="big3-label">スクワット</span>
+          <span class="big3-val font-mono text-cyan">${big3.squatMax > 0 ? `${big3.squatMax} kg` : '未記録'}</span>
+        </div>
+        <div class="big3-item">
+          <span class="big3-label">デッドリフト</span>
+          <span class="big3-val font-mono text-cyan">${big3.deadliftMax > 0 ? `${big3.deadliftMax} kg` : '未記録'}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 週間部位別ボリュームメーター (過去7日間) -->
+    <section class="card muscle-volume-card">
+      <div class="card-header-flex">
+        <div>
+          <h3 class="card-title">💪 週間部位別セット数ボリューム (直近7日間)</h3>
+          <span class="text-muted text-sm">筋肥大の推奨ボリューム: 各部位 10〜20セット/週</span>
+        </div>
+      </div>
+
+      <div class="volume-meters-grid mt-3">
+        ${['胸', '背中', '脚', '肩', '腕', '腹']
+          .map((cat) => {
+            const v = weeklyVolume[/** @type {import('../model.js').MuscleCategory} */ (cat)] || { sets: 0, status: 'low' };
+            const percent = Math.min(100, Math.round((v.sets / 20) * 100));
+            const statusLabel = v.status === 'optimal' ? '✨ 最適' : v.status === 'high' ? '🔥 高負荷' : '不足';
+            const statusClass = v.status === 'optimal' ? 'status-optimal' : v.status === 'high' ? 'status-high' : 'status-low';
+
+            return `
+            <div class="volume-meter-row">
+              <div class="volume-meter-info">
+                <span class="font-bold">${cat}</span>
+                <span class="volume-status-tag ${statusClass}">${statusLabel}</span>
+              </div>
+              <div class="volume-meter-track">
+                <div class="volume-meter-fill ${statusClass}" style="width: ${percent}%"></div>
+              </div>
+              <div class="volume-meter-count font-mono text-sm">
+                <strong>${v.sets}</strong> / 20 sets
+              </div>
+            </div>
+          `;
+          })
+          .join('')}
       </div>
     </section>
 
@@ -191,7 +342,7 @@ export function renderAnalytics() {
 }
 
 /**
- * Canvas による高解像度オーバーレイグラフの描画
+ * Canvas による高解像度オーバーレイグラフの描画（実測体重 + 7日移動平均線 + 推定1RM）
  */
 export function renderChart() {
   const canvas = /** @type {HTMLCanvasElement | null} */ (document.getElementById('analytics-canvas'));
@@ -217,19 +368,25 @@ export function renderChart() {
     (a, b) => Date.parse(a.date) - Date.parse(b.date),
   );
 
-  // データポイントの抽出 (日付, 体重, 指定種目の最高1RM)
-  /** @type {Array<{ date: string, weight: number | null, max1rm: number | null }>} */
+  // 7日移動平均の算出
+  const maRecords = calculate7DayMovingAverage(workouts);
+  const maMap = new Map(maRecords.map((r) => [r.date, r.ma7]));
+
+  // データポイントの抽出 (日付, 体重, 7日MA, 指定種目の最高1RM)
+  /** @type {Array<{ date: string, weight: number | null, ma7: number | null, max1rm: number | null }>} */
   const points = [];
 
   workouts.forEach((w) => {
     const matchSets = w.sets.filter((s) => s.exerciseName === selectedExercise);
     const max1rm = matchSets.length > 0 ? Math.max(...matchSets.map((s) => s.estimated1rm)) : null;
     const bodyWeight = w.bodyWeight || null;
+    const ma7 = maMap.get(w.date) || null;
 
     if (max1rm !== null || bodyWeight !== null) {
       points.push({
         date: w.date.slice(5), // "MM-DD"
         weight: bodyWeight,
+        ma7,
         max1rm,
       });
     }
@@ -251,10 +408,12 @@ export function renderChart() {
   const chartW = width - paddingLeft - paddingRight;
   const chartH = height - paddingTop - paddingBottom;
 
-  // 左軸 (体重) の最小・最大
-  const weights = points.map((p) => p.weight).filter(/** @type {(v: any) => v is number} */ (v) => v !== null);
-  const minW = weights.length > 0 ? Math.floor(Math.min(...weights) - 2) : 60;
-  const maxW = weights.length > 0 ? Math.ceil(Math.max(...weights) + 2) : 80;
+  // 左軸 (体重 / MA) の最小・最大
+  const allWeights = points
+    .flatMap((p) => [p.weight, p.ma7])
+    .filter(/** @type {(v: any) => v is number} */ (v) => v !== null && v !== undefined);
+  const minW = allWeights.length > 0 ? Math.floor(Math.min(...allWeights) - 2) : 60;
+  const maxW = allWeights.length > 0 ? Math.ceil(Math.max(...allWeights) + 2) : 80;
 
   // 右軸 (1RM) の最小・最大
   const max1rms = points.map((p) => p.max1rm).filter(/** @type {(v: any) => v is number} */ (v) => v !== null);
@@ -297,7 +456,7 @@ export function renderChart() {
     ctx.fillText(p.date, x, height - 12);
   });
 
-  // 1. 体重ライン (シアン)
+  // 1. 実測体重ライン (シアン・透過細線 + ドット)
   const validWeightPoints = points
     .map((p, idx) => {
       if (p.weight === null) return null;
@@ -308,8 +467,8 @@ export function renderChart() {
     .filter(/** @type {(v: any) => v is { x: number, y: number, val: number }} */ (v) => v !== null);
 
   if (validWeightPoints.length > 1) {
-    ctx.strokeStyle = '#06b6d4';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(6, 182, 212, 0.4)';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     validWeightPoints.forEach((pt, idx) => {
       if (idx === 0) ctx.moveTo(pt.x, pt.y);
@@ -317,16 +476,39 @@ export function renderChart() {
     });
     ctx.stroke();
 
-    // 点を描画
+    // 実測値のドット
     ctx.fillStyle = '#06b6d4';
     validWeightPoints.forEach((pt) => {
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+      ctx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
       ctx.fill();
     });
   }
 
-  // 2. 推定1RMライン (オレンジ)
+  // 2. 7日間移動平均線 (スカイブルー・破線太線)
+  const validMaPoints = points
+    .map((p, idx) => {
+      if (p.ma7 === null) return null;
+      const x = paddingLeft + idx * stepX;
+      const y = paddingTop + chartH * (1 - (p.ma7 - minW) / (maxW - minW));
+      return { x, y, val: p.ma7 };
+    })
+    .filter(/** @type {(v: any) => v is { x: number, y: number, val: number }} */ (v) => v !== null);
+
+  if (validMaPoints.length > 1) {
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    validMaPoints.forEach((pt, idx) => {
+      if (idx === 0) ctx.moveTo(pt.x, pt.y);
+      else ctx.lineTo(pt.x, pt.y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]); // リセット
+  }
+
+  // 3. 推定1RMライン (オレンジ)
   const valid1rmPoints = points
     .map((p, idx) => {
       if (p.max1rm === null) return null;
@@ -355,3 +537,4 @@ export function renderChart() {
     });
   }
 }
+

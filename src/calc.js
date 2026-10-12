@@ -327,3 +327,389 @@ export function analyzeConditionInsights(workouts) {
 
   return insights;
 }
+
+/**
+ * 減量・増量マイルストーンの進捗および必要カロリー差分の計算（7,200 kcal/kg 則）
+ * @param {number} startWeight 開始時体重 (kg)
+ * @param {number} currentWeight 現在体重 (kg)
+ * @param {number} targetWeight 目標体重 (kg)
+ * @param {string} targetDate 目標達成予定日 (YYYY-MM-DD)
+ * @param {Date} [now] 現在日時
+ * @returns {{
+ *   daysRemaining: number,
+ *   direction: 'cut' | 'maintain' | 'bulk',
+ *   weightRemaining: number,
+ *   totalChangeNeeded: number,
+ *   totalCaloriesNeeded: number,
+ *   dailyCalorieAdjustment: number,
+ *   progressPercent: number
+ * }}
+ */
+export function calculateWeightPace(startWeight, currentWeight, targetWeight, targetDate, now = new Date()) {
+  const sWeight = Number(startWeight) || Number(currentWeight) || 68;
+  const cWeight = Number(currentWeight) || 68;
+  const tWeight = Number(targetWeight) || cWeight;
+
+  // 残り日数の計算 (本日との差分日数、0日未満は0)
+  let daysRemaining = 0;
+  if (targetDate) {
+    const todayStr = now.toISOString().slice(0, 10);
+    const targetEpoch = Date.parse(targetDate);
+    const todayEpoch = Date.parse(todayStr);
+    if (!Number.isNaN(targetEpoch) && !Number.isNaN(todayEpoch)) {
+      const diffMs = targetEpoch - todayEpoch;
+      daysRemaining = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+    }
+  }
+
+  /** @type {'cut' | 'maintain' | 'bulk'} */
+  let direction = 'maintain';
+  if (tWeight < cWeight) direction = 'cut';
+  else if (tWeight > cWeight) direction = 'bulk';
+
+  const weightRemaining = Math.round(Math.abs(cWeight - tWeight) * 10) / 10;
+  // 脂肪1kg = 約7,200kcal
+  const totalCaloriesNeeded = Math.round(weightRemaining * 7200);
+  const dailyCalorieAdjustment = daysRemaining > 0 ? Math.round(totalCaloriesNeeded / daysRemaining) : 0;
+
+  // 進捗率の計算 (0〜100%)
+  let progressPercent = 0;
+  const totalSpan = Math.abs(tWeight - sWeight);
+  if (totalSpan <= 0.05) {
+    progressPercent = 100;
+  } else if (direction === 'cut') {
+    const lost = sWeight - cWeight;
+    progressPercent = Math.max(0, Math.min(100, Math.round((lost / (sWeight - tWeight)) * 100)));
+  } else if (direction === 'bulk') {
+    const gained = cWeight - sWeight;
+    progressPercent = Math.max(0, Math.min(100, Math.round((gained / (tWeight - sWeight)) * 100)));
+  } else {
+    progressPercent = 100;
+  }
+
+  return {
+    daysRemaining,
+    direction,
+    weightRemaining,
+    totalChangeNeeded: Math.round((tWeight - cWeight) * 10) / 10,
+    totalCaloriesNeeded,
+    dailyCalorieAdjustment,
+    progressPercent,
+  };
+}
+
+/**
+ * 減量・増量ペースの安全性判定（医学・スポーツ栄養学基準）
+ * - 減量: 月間5%超（または日別1,000kcal以上の赤字）は筋肉減少・基礎代謝低下・胆石リスク
+ * - 増量: 月間2%超（または日別700kcal以上の黒字）は体脂肪過多・生活習慣病リスク
+ * @param {number} currentWeight 現在体重 (kg)
+ * @param {number} targetWeight 目標体重 (kg)
+ * @param {string} targetDate 目標達成予定日 (YYYY-MM-DD)
+ * @param {Date} [now]
+ * @returns {{
+ *   isUnsafe: boolean,
+ *   severity: 'none' | 'warning' | 'danger',
+ *   reason: string,
+ *   monthlyRatePercent: number,
+ *   dailyCalorieAdjustment: number,
+ *   recommendedDays: number,
+ *   recommendedTargetDate: string,
+ *   suggestedWeightForDate: number
+ * }}
+ */
+export function checkPaceSafety(currentWeight, targetWeight, targetDate, now = new Date()) {
+  const cWeight = Number(currentWeight) || 68;
+  const tWeight = Number(targetWeight) || cWeight;
+  const weightDiff = Math.round((tWeight - cWeight) * 10) / 10;
+
+  if (Math.abs(weightDiff) < 0.1 || !targetDate) {
+    return {
+      isUnsafe: false,
+      severity: 'none',
+      reason: '',
+      monthlyRatePercent: 0,
+      dailyCalorieAdjustment: 0,
+      recommendedDays: 0,
+      recommendedTargetDate: targetDate || '',
+      suggestedWeightForDate: tWeight,
+    };
+  }
+
+  const todayStr = now.toISOString().slice(0, 10);
+  const targetEpoch = Date.parse(targetDate);
+  const todayEpoch = Date.parse(todayStr);
+  const daysRemaining = Number.isNaN(targetEpoch) ? 0 : Math.round((targetEpoch - todayEpoch) / (1000 * 60 * 60 * 24));
+
+  if (daysRemaining <= 0) {
+    return {
+      isUnsafe: true,
+      severity: 'danger',
+      reason: '目標日が本日以前になっています。未来の日付を設定してください。',
+      monthlyRatePercent: 0,
+      dailyCalorieAdjustment: 0,
+      recommendedDays: 30,
+      recommendedTargetDate: new Date(now.getTime() + 30 * 86400000).toISOString().slice(0, 10),
+      suggestedWeightForDate: tWeight,
+    };
+  }
+
+  const totalAbsDiff = Math.abs(weightDiff);
+  const ratePerDay = totalAbsDiff / daysRemaining;
+  const monthlyWeightChange = ratePerDay * 30;
+  const monthlyRatePercent = Math.round((monthlyWeightChange / cWeight) * 1000) / 10;
+  const dailyCalorieAdjustment = Math.round((totalAbsDiff * 7200) / daysRemaining);
+
+  // 1. 減量チェック (Cut)
+  if (weightDiff < 0) {
+    // 基準: 安全な上限は月間 5.0%（体重70kgなら月3.5kgまで、1日最大-840kcal）
+    if (monthlyRatePercent > 5.0 || dailyCalorieAdjustment > 1000) {
+      const safeMonthlyKg = cWeight * 0.05; // 5%
+      const safeDailyKg = safeMonthlyKg / 30;
+      const recommendedDays = Math.max(7, Math.ceil(totalAbsDiff / safeDailyKg));
+      const recDate = new Date(now.getTime() + recommendedDays * 86400000).toISOString().slice(0, 10);
+      const suggestedWeightForDate = Math.round((cWeight - safeDailyKg * daysRemaining) * 10) / 10;
+
+      const isExtreme = monthlyRatePercent > 8.0 || dailyCalorieAdjustment > 1500;
+      return {
+        isUnsafe: true,
+        severity: isExtreme ? 'danger' : 'warning',
+        reason: `月間換算 -${monthlyRatePercent}%（日別 -${dailyCalorieAdjustment.toLocaleString()} kcal）の減量は急激すぎます。筋肉の大幅な減少、基礎代謝の低下、リバウンドや体調不良のリスクが極めて高くなります。`,
+        monthlyRatePercent,
+        dailyCalorieAdjustment,
+        recommendedDays,
+        recommendedTargetDate: recDate,
+        suggestedWeightForDate,
+      };
+    }
+  }
+
+  // 2. 増量チェック (Bulk)
+  if (weightDiff > 0) {
+    // 基準: 安全なリーンバルクの上限は月間 2.0%（体重70kgなら月1.4kgまで、1日最大+336kcal）
+    if (monthlyRatePercent > 2.0 || dailyCalorieAdjustment > 700) {
+      const safeMonthlyKg = cWeight * 0.02; // 2%
+      const safeDailyKg = safeMonthlyKg / 30;
+      const recommendedDays = Math.max(7, Math.ceil(totalAbsDiff / safeDailyKg));
+      const recDate = new Date(now.getTime() + recommendedDays * 86400000).toISOString().slice(0, 10);
+      const suggestedWeightForDate = Math.round((cWeight + safeDailyKg * daysRemaining) * 10) / 10;
+
+      const isExtreme = monthlyRatePercent > 4.0 || dailyCalorieAdjustment > 1000;
+      return {
+        isUnsafe: true,
+        severity: isExtreme ? 'danger' : 'warning',
+        reason: `月間換算 +${monthlyRatePercent}%（日別 +${dailyCalorieAdjustment.toLocaleString()} kcal）の増量は筋肉ではなく体脂肪が急増するリスクがあります。リーンバルクには月間+1〜2%以内が推奨されます。`,
+        monthlyRatePercent,
+        dailyCalorieAdjustment,
+        recommendedDays,
+        recommendedTargetDate: recDate,
+        suggestedWeightForDate,
+      };
+    }
+  }
+
+  return {
+    isUnsafe: false,
+    severity: 'none',
+    reason: '',
+    monthlyRatePercent,
+    dailyCalorieAdjustment,
+    recommendedDays: daysRemaining,
+    recommendedTargetDate: targetDate,
+    suggestedWeightForDate: tWeight,
+  };
+}
+
+/**
+ * 体重の7日間移動平均（Rolling Average）の算出
+ * 日々の水分量変動を平滑化し、真の体脂肪増減トレンドを可視化する
+ * @param {Array<{ date: string, bodyWeight: number | null }>} workouts
+ * @returns {Array<{ date: string, weight: number | null, ma7: number | null }>}
+ */
+export function calculate7DayMovingAverage(workouts) {
+  if (!Array.isArray(workouts)) return [];
+  const sorted = [...workouts]
+    .filter((w) => w && typeof w.date === 'string')
+    .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+
+  return sorted.map((w, idx) => {
+    const weight = w.bodyWeight !== null && w.bodyWeight !== undefined ? Number(w.bodyWeight) : null;
+    const currentDateEpoch = Date.parse(w.date);
+
+    // 過去7日間 (currentDateEpoch - 6日 から currentDateEpoch まで) の記録を取得
+    const windowRecords = sorted.slice(0, idx + 1).filter((prev) => {
+      const prevDateEpoch = Date.parse(prev.date);
+      const diffDays = (currentDateEpoch - prevDateEpoch) / (1000 * 60 * 60 * 24);
+      return diffDays >= 0 && diffDays < 7 && prev.bodyWeight !== null && prev.bodyWeight !== undefined;
+    });
+
+    let ma7 = null;
+    if (windowRecords.length > 0) {
+      const sum = windowRecords.reduce((acc, r) => acc + Number(r.bodyWeight), 0);
+      ma7 = Math.round((sum / windowRecords.length) * 10) / 10;
+    }
+
+    return {
+      date: w.date,
+      weight,
+      ma7,
+    };
+  });
+}
+
+/**
+ * 過去7日間の平均摂取カロリー＆PFCバランスの算出
+ * @param {import('./model.js').DailyNutrition[]} dailyNutritionList
+ * @param {Date} [now]
+ * @returns {{ daysLogged: number, avgCalories: number, avgP: number, avgF: number, avgC: number }}
+ */
+export function calculateWeeklyNutritionAverage(dailyNutritionList, now = new Date()) {
+  if (!Array.isArray(dailyNutritionList) || dailyNutritionList.length === 0) {
+    return { daysLogged: 0, avgCalories: 0, avgP: 0, avgF: 0, avgC: 0 };
+  }
+
+  const todayEpoch = Date.parse(now.toISOString().slice(0, 10));
+  const weekList = dailyNutritionList.filter((d) => {
+    const epoch = Date.parse(d.date);
+    const diffDays = (todayEpoch - epoch) / (1000 * 60 * 60 * 24);
+    return diffDays >= 0 && diffDays < 7 && (d.totalP > 0 || d.totalF > 0 || d.totalC > 0);
+  });
+
+  if (weekList.length === 0) {
+    return { daysLogged: 0, avgCalories: 0, avgP: 0, avgF: 0, avgC: 0 };
+  }
+
+  const totalP = weekList.reduce((acc, d) => acc + d.totalP, 0);
+  const totalF = weekList.reduce((acc, d) => acc + d.totalF, 0);
+  const totalC = weekList.reduce((acc, d) => acc + d.totalC, 0);
+  const totalCals = weekList.reduce((acc, d) => acc + pfcToCalories(d.totalP, d.totalF, d.totalC), 0);
+  const count = weekList.length;
+
+  return {
+    daysLogged: count,
+    avgCalories: Math.round(totalCals / count),
+    avgP: Math.round((totalP / count) * 10) / 10,
+    avgF: Math.round((totalF / count) * 10) / 10,
+    avgC: Math.round((totalC / count) * 10) / 10,
+  };
+}
+
+/**
+ * BIG3（ベンチプレス・スクワット・デッドリフト）の自己最高 推定1RM 合計スコア
+ * @param {import('./model.js').WorkoutSession[]} workouts
+ * @returns {{
+ *   benchMax: number,
+ *   squatMax: number,
+ *   deadliftMax: number,
+ *   total: number,
+ *   clubLevel: '500kg Club' | '400kg Club' | '300kg Club' | 'Road to 300kg'
+ * }}
+ */
+export function calculateBig3Total(workouts) {
+  let benchMax = 0;
+  let squatMax = 0;
+  let deadliftMax = 0;
+
+  if (Array.isArray(workouts)) {
+    workouts.forEach((w) => {
+      (w.sets || []).forEach((s) => {
+        if (s.isCompleted === false) return;
+        const name = (s.exerciseName || '').toLowerCase();
+        const est = Number(s.estimated1rm) || 0;
+        if (name.includes('ベンチプレス') || name.includes('bench')) {
+          if (est > benchMax) benchMax = est;
+        } else if (name.includes('スクワット') || name.includes('squat')) {
+          if (est > squatMax) squatMax = est;
+        } else if (name.includes('デッドリフト') || name.includes('deadlift')) {
+          if (est > deadliftMax) deadliftMax = est;
+        }
+      });
+    });
+  }
+
+  const total = Math.round((benchMax + squatMax + deadliftMax) * 10) / 10;
+  /** @type {'500kg Club' | '400kg Club' | '300kg Club' | 'Road to 300kg'} */
+  let clubLevel = 'Road to 300kg';
+  if (total >= 500) clubLevel = '500kg Club';
+  else if (total >= 400) clubLevel = '400kg Club';
+  else if (total >= 300) clubLevel = '300kg Club';
+
+  return {
+    benchMax,
+    squatMax,
+    deadliftMax,
+    total,
+    clubLevel,
+  };
+}
+
+/**
+ * 過去7日間の部位別セット数ボリュームメーター
+ * 推奨週間セット数: 1部位あたり 10〜20セット（筋肥大の至適ボリューム）
+ * @param {import('./model.js').WorkoutSession[]} workouts
+ * @param {import('./model.js').ExerciseTemplate[]} exerciseTemplates
+ * @param {Date} [now]
+ * @returns {Record<import('./model.js').MuscleCategory, { sets: number, status: 'low' | 'optimal' | 'high' }>}
+ */
+export function calculateWeeklyMuscleVolume(workouts, exerciseTemplates, now = new Date()) {
+  /** @type {Record<import('./model.js').MuscleCategory, number>} */
+  const counts = {
+    胸: 0,
+    背中: 0,
+    脚: 0,
+    肩: 0,
+    腕: 0,
+    腹: 0,
+    その他: 0,
+  };
+
+  /** @type {Map<string, import('./model.js').MuscleCategory>} */
+  const categoryMap = new Map();
+  if (Array.isArray(exerciseTemplates)) {
+    exerciseTemplates.forEach((t) => {
+      if (t && t.name && t.category) {
+        categoryMap.set(t.name.trim().toLowerCase(), t.category);
+      }
+    });
+  }
+
+  if (Array.isArray(workouts)) {
+    const todayEpoch = Date.parse(now.toISOString().slice(0, 10));
+    workouts.forEach((w) => {
+      const epoch = Date.parse(w.date);
+      const diffDays = (todayEpoch - epoch) / (1000 * 60 * 60 * 24);
+      if (diffDays >= 0 && diffDays < 7) {
+        (w.sets || []).forEach((s) => {
+          // UPセットおよび未完了セットはカウント除外（有効刺激セットのみ）
+          if (s.isCompleted === false || s.setType === 'UP') return;
+          const cleanName = (s.exerciseName || '').trim().toLowerCase();
+          let cat = categoryMap.get(cleanName);
+          if (!cat) {
+            // 名前の簡易推定
+            if (cleanName.includes('ベンチ') || cleanName.includes('チェスト') || cleanName.includes('ディップス')) cat = '胸';
+            else if (cleanName.includes('スクワット') || cleanName.includes('レッグ') || cleanName.includes('カーフ')) cat = '脚';
+            else if (cleanName.includes('デッドリフト') || cleanName.includes('懸垂') || cleanName.includes('ロー') || cleanName.includes('プルダウン')) cat = '背中';
+            else if (cleanName.includes('ショルダー') || cleanName.includes('レイズ') || cleanName.includes('ミリタリー')) cat = '肩';
+            else if (cleanName.includes('カール') || cleanName.includes('トライセプス') || cleanName.includes('エクステンション')) cat = '腕';
+            else if (cleanName.includes('クランチ') || cleanName.includes('アブ') || cleanName.includes('レッグレイズ')) cat = '腹';
+            else cat = 'その他';
+          }
+          counts[cat] = (counts[cat] || 0) + 1;
+        });
+      }
+    });
+  }
+
+  /** @type {Record<import('./model.js').MuscleCategory, { sets: number, status: 'low' | 'optimal' | 'high' }>} */
+  const result = {
+    胸: { sets: counts.胸, status: counts.胸 < 10 ? 'low' : counts.胸 <= 20 ? 'optimal' : 'high' },
+    背中: { sets: counts.背中, status: counts.背中 < 10 ? 'low' : counts.背中 <= 20 ? 'optimal' : 'high' },
+    脚: { sets: counts.脚, status: counts.脚 < 10 ? 'low' : counts.脚 <= 20 ? 'optimal' : 'high' },
+    肩: { sets: counts.肩, status: counts.肩 < 10 ? 'low' : counts.肩 <= 20 ? 'optimal' : 'high' },
+    腕: { sets: counts.腕, status: counts.腕 < 10 ? 'low' : counts.腕 <= 20 ? 'optimal' : 'high' },
+    腹: { sets: counts.腹, status: counts.腹 < 6 ? 'low' : counts.腹 <= 16 ? 'optimal' : 'high' },
+    その他: { sets: counts.その他, status: counts.その他 < 10 ? 'low' : counts.その他 <= 20 ? 'optimal' : 'high' },
+  };
+
+  return result;
+}
+
