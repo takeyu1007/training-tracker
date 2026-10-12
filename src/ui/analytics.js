@@ -65,16 +65,24 @@ export function renderAnalytics() {
 
   const state = storeInstance.getState();
   const profile = state.profile;
+  const activeProj = state.activeProject;
   const workouts = state.workouts;
+  const latestWeight = storeInstance.getLatestWeight();
   const insights = analyzeConditionInsights(workouts);
   const exerciseTemplates = state.exerciseTemplates;
 
-  // 1. マイルストーン＆カロリー計算
+  // 1. プロジェクト目標マイルストーン＆カロリー計算
+  const startWeight = activeProj?.startWeight ?? profile.startWeight ?? latestWeight;
+  const currentWeight = latestWeight;
+  const targetWeight = Number(activeProj?.targetWeight ?? profile.targetWeight) || 65;
+  const targetDate = activeProj?.targetDate || profile.targetDate || '';
+  const projTitle = activeProj?.title || activeProj?.name || (targetDate ? '目標管理' : 'プロジェクト未設定');
+
   const pace = calculateWeightPace(
-    profile.startWeight !== undefined ? profile.startWeight : profile.currentWeight,
-    profile.currentWeight,
-    profile.targetWeight,
-    profile.targetDate,
+    startWeight,
+    currentWeight,
+    targetWeight,
+    targetDate,
   );
 
   // 2. BIG3 トータル推定MAXスコア
@@ -98,28 +106,31 @@ export function renderAnalytics() {
     <section class="card milestone-card">
       <div class="card-header-flex">
         <div>
-          <h3 class="card-title">🎯 減量・増量マイルストーン</h3>
+          <div class="flex-row items-center gap-2">
+            <h3 class="card-title">🎯 減量・増量マイルストーン</h3>
+            ${activeProj ? `<span class="badge ${activeProj.goalType === 'cut' ? 'badge-primary' : activeProj.goalType === 'bulk' ? 'badge-success' : 'badge-muted'}">${escapeHtml(projTitle)}</span>` : ''}
+          </div>
           <span class="text-muted text-sm">目標達成期日と消費カロリー（7,200kcal/kg則）の予実管理</span>
         </div>
         <div class="milestone-days-badge ${pace.daysRemaining > 0 ? 'badge-primary' : 'badge-muted'}">
-          ${pace.daysRemaining > 0 ? `あと ${pace.daysRemaining}日` : (profile.targetDate ? '本日目標日' : '期日未設定')}
+          ${pace.daysRemaining > 0 ? `あと ${pace.daysRemaining}日` : (targetDate ? '本日目標日' : '期日未設定')}
         </div>
       </div>
 
       ${
-        !profile.targetDate
+        !targetDate
           ? `
         <div class="milestone-empty-box mt-3 text-center">
-          <p class="text-sm text-muted">「⚙️ 設定」タブで目標体重と目標達成予定日を入力すると、ここに進捗率と必要カロリー消費ペースがリアルタイム表示されます。</p>
+          <p class="text-sm text-muted">「⚙️ 設定」タブのプロジェクト管理で目標体重と目標達成予定日を設定すると、進捗率と必要カロリー消費ペースがリアルタイム表示されます。</p>
         </div>
       `
           : `
         <!-- 体重進捗ゲージ -->
         <div class="milestone-progress-section mt-3">
           <div class="milestone-weights-row font-mono text-sm">
-            <span class="weight-point">開始: <strong>${profile.startWeight || profile.currentWeight}kg</strong></span>
-            <span class="weight-point text-cyan">現在: <strong>${profile.currentWeight}kg</strong></span>
-            <span class="weight-point text-emerald">目標: <strong>${profile.targetWeight}kg</strong></span>
+            <span class="weight-point">開始: <strong>${startWeight}kg</strong></span>
+            <span class="weight-point text-cyan">現在: <strong>${currentWeight}kg</strong></span>
+            <span class="weight-point text-emerald">目標: <strong>${targetWeight}kg</strong></span>
           </div>
 
           <div class="progress-bar-track milestone-track mt-2">
@@ -247,16 +258,41 @@ export function renderAnalytics() {
       </div>
     </section>
 
-    <!-- ワークアウト履歴タイムライン -->
+    <!-- ワークアウト・休息日履歴タイムライン -->
     <section class="card history-timeline-card">
-      <h3 class="card-title">📜 ワークアウト履歴</h3>
+      <h3 class="card-title">📜 アクティビティ履歴（トレ日＆休息日）</h3>
       ${
         workouts.length === 0
-          ? `<p class="empty-hint text-center text-muted">まだ完了したセッションはありません。</p>`
+          ? `<p class="empty-hint text-center text-muted">まだ記録されたセッションはありません。</p>`
           : `
           <div class="history-list">
             ${workouts
               .map((w) => {
+                if (w.sessionType === 'rest') {
+                  return `
+                  <div class="history-item history-item-rest">
+                    <div class="history-session-header">
+                      <div>
+                        <span class="font-bold">${formatDate(w.date)}</span>
+                        <span class="badge badge-rest ml-2">🛋️ 休息日</span>
+                      </div>
+                      <div class="history-badges">
+                        <span class="tag tag-sleep">💤 ${w.sleepCategory}</span>
+                        <span class="tag tag-cond">体調 ★${w.conditionScore}</span>
+                        ${w.bodyWeight ? `<span class="font-mono text-cyan">${w.bodyWeight} kg</span>` : ''}
+                      </div>
+                    </div>
+                    <div class="history-session-details">
+                      ${
+                        w.notes
+                          ? `<div class="history-rest-notes"><p class="text-sm text-muted">📝 ${escapeHtml(w.notes)}</p></div>`
+                          : `<p class="text-xs text-muted">休息日リカバリー完了</p>`
+                      }
+                    </div>
+                  </div>
+                `;
+                }
+
                 const vol = calculateSessionVolume(w.sets);
                 return `
                 <div class="history-item">
@@ -268,10 +304,12 @@ export function renderAnalytics() {
                     <div class="history-badges">
                       <span class="tag tag-sleep">💤 ${w.sleepCategory}</span>
                       <span class="tag tag-carb">${w.preWorkoutCarb ? '🍌 糖質あり' : '空腹'}</span>
+                      ${w.bodyWeight ? `<span class="font-mono text-muted text-xs mr-1">${w.bodyWeight}kg</span>` : ''}
                       <span class="font-mono text-cyan">${vol.toLocaleString()} kg</span>
                     </div>
                   </div>
                   <div class="history-session-details">
+                    ${w.notes ? `<div class="history-notes-box text-xs text-muted mb-2">📝 ${escapeHtml(w.notes)}</div>` : ''}
                     <ul class="history-sets-list">
                       ${w.sets
                         .map(
@@ -323,28 +361,48 @@ export function renderChart() {
 
   ctx.clearRect(0, 0, width, height);
 
-  // ワークアウトデータを古い順（時系列）にソート
-  const workouts = [...storeInstance.getState().workouts].sort(
+  const state = storeInstance.getState();
+  const workouts = [...state.workouts].sort(
     (a, b) => Date.parse(a.date) - Date.parse(b.date),
   );
 
+  // 体重ログとワークアウト体重を統合したマップを作成
+  /** @type {Map<string, number>} */
+  const weightMap = new Map();
+  state.weightLogs.forEach((l) => weightMap.set(l.date, l.weight));
+  workouts.forEach((w) => {
+    if (w.bodyWeight && !weightMap.has(w.date)) {
+      weightMap.set(w.date, w.bodyWeight);
+    }
+  });
+
+  const weightTimeline = Array.from(weightMap.entries())
+    .sort(([d1], [d2]) => d1.localeCompare(d2))
+    .map(([date, bodyWeight]) => ({ date, bodyWeight }));
+
   // 7日移動平均の算出
-  const maRecords = calculate7DayMovingAverage(workouts);
+  const maRecords = calculate7DayMovingAverage(weightTimeline);
   const maMap = new Map(maRecords.map((r) => [r.date, r.ma7]));
 
-  // データポイントの抽出 (日付, 体重, 7日MA, 指定種目の最高1RM)
+  // 全日付セットの統合
+  const allDates = new Set();
+  workouts.forEach((w) => allDates.add(w.date));
+  state.weightLogs.forEach((l) => allDates.add(l.date));
+
   /** @type {Array<{ date: string, weight: number | null, ma7: number | null, max1rm: number | null }>} */
   const points = [];
+  const sortedDates = Array.from(allDates).sort();
 
-  workouts.forEach((w) => {
-    const matchSets = w.sets.filter((s) => s.exerciseName === selectedExercise);
+  sortedDates.forEach((d) => {
+    const matchWorkouts = workouts.filter((w) => w.date === d);
+    const matchSets = matchWorkouts.flatMap((w) => w.sets.filter((s) => s.exerciseName === selectedExercise));
     const max1rm = matchSets.length > 0 ? Math.max(...matchSets.map((s) => s.estimated1rm)) : null;
-    const bodyWeight = w.bodyWeight || null;
-    const ma7 = maMap.get(w.date) || null;
+    const bodyWeight = weightMap.get(/** @type {string} */ (d)) || null;
+    const ma7 = maMap.get(/** @type {string} */ (d)) || null;
 
     if (max1rm !== null || bodyWeight !== null) {
       points.push({
-        date: w.date.slice(5), // "MM-DD"
+        date: String(d).slice(5), // "MM-DD"
         weight: bodyWeight,
         ma7,
         max1rm,

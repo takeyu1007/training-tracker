@@ -125,13 +125,14 @@ export function renderNutrition() {
 
   const state = storeInstance.getState();
   const profile = state.profile;
+  const activeProj = state.activeProject;
   const daily = storeInstance.getOrCreateDailyNutrition(selectedDateStr);
 
   const targets = {
-    targetCalories: profile.targetCalories,
-    targetP: profile.targetP,
-    targetF: profile.targetF,
-    targetC: profile.targetC,
+    targetCalories: Number(activeProj?.targetCalories ?? profile.targetCalories) || 2200,
+    targetP: Number(activeProj?.targetP ?? profile.targetP) || 150,
+    targetF: Number(activeProj?.targetF ?? profile.targetF) || 55,
+    targetC: Number(activeProj?.targetC ?? profile.targetC) || 250,
   };
 
   const metrics = calculateRemainingPFC(targets, daily);
@@ -151,7 +152,7 @@ export function renderNutrition() {
       <div class="calories-main-hero">
         <div class="calories-circle">
           <span class="calories-number font-mono">${metrics.currentCalories.toLocaleString()}</span>
-          <span class="calories-unit">/ ${profile.targetCalories.toLocaleString()} kcal</span>
+          <span class="calories-unit">/ ${targets.targetCalories.toLocaleString()} kcal</span>
         </div>
         <div class="calories-diff-badge ${metrics.diffCalories >= 0 ? 'is-under' : 'is-over'}">
           ${metrics.diffCalories >= 0 ? `残り ${metrics.diffCalories.toLocaleString()} kcal` : `${Math.abs(metrics.diffCalories).toLocaleString()} kcal 超過`}
@@ -167,7 +168,7 @@ export function renderNutrition() {
             <span class="macro-diff">${metrics.remainingP >= 0 ? `あと ${metrics.remainingP}g` : `+${Math.abs(metrics.remainingP)}g`}</span>
           </div>
           <div class="macro-numbers font-mono">
-            <strong>${daily.totalP}</strong> <small>/ ${profile.targetP}g</small>
+            <strong>${daily.totalP}</strong> <small>/ ${targets.targetP}g</small>
           </div>
           <div class="progress-bar-track">
             <div class="progress-bar-fill fill-p" style="width: ${metrics.percentP}%"></div>
@@ -181,7 +182,7 @@ export function renderNutrition() {
             <span class="macro-diff">${metrics.remainingF >= 0 ? `あと ${metrics.remainingF}g` : `+${Math.abs(metrics.remainingF)}g`}</span>
           </div>
           <div class="macro-numbers font-mono">
-            <strong>${daily.totalF}</strong> <small>/ ${profile.targetF}g</small>
+            <strong>${daily.totalF}</strong> <small>/ ${targets.targetF}g</small>
           </div>
           <div class="progress-bar-track">
             <div class="progress-bar-fill fill-f" style="width: ${metrics.percentF}%"></div>
@@ -195,7 +196,7 @@ export function renderNutrition() {
             <span class="macro-diff">${metrics.remainingC >= 0 ? `あと ${metrics.remainingC}g` : `+${Math.abs(metrics.remainingC)}g`}</span>
           </div>
           <div class="macro-numbers font-mono">
-            <strong>${daily.totalC}</strong> <small>/ ${profile.targetC}g</small>
+            <strong>${daily.totalC}</strong> <small>/ ${targets.targetC}g</small>
           </div>
           <div class="progress-bar-track">
             <div class="progress-bar-fill fill-c" style="width: ${metrics.percentC}%"></div>
@@ -211,7 +212,7 @@ export function renderNutrition() {
           <h3 class="card-title">📊 直近7日間の平均栄養実績</h3>
           <span class="text-muted text-sm">週平均カロリーと目標PFCのバランス</span>
         </div>
-        <div class="weekly-avg-badge ${weeklyAvg.avgCalories > profile.targetCalories ? 'is-over' : 'is-under'}">
+        <div class="weekly-avg-badge ${weeklyAvg.avgCalories > targets.targetCalories ? 'is-over' : 'is-under'}">
           ${weeklyAvg.daysLogged > 0 ? `平均 ${weeklyAvg.avgCalories.toLocaleString()} kcal/日` : 'データ収集中'}
         </div>
       </div>
@@ -226,17 +227,17 @@ export function renderNutrition() {
           <div class="weekly-macro-item">
             <span class="label text-p">平均 Protein</span>
             <span class="val font-mono"><strong>${weeklyAvg.avgP}</strong>g</span>
-            <span class="sub text-xs text-muted">目標: ${profile.targetP}g</span>
+            <span class="sub text-xs text-muted">目標: ${targets.targetP}g</span>
           </div>
           <div class="weekly-macro-item">
             <span class="label text-f">平均 Fat</span>
             <span class="val font-mono"><strong>${weeklyAvg.avgF}</strong>g</span>
-            <span class="sub text-xs text-muted">目標: ${profile.targetF}g</span>
+            <span class="sub text-xs text-muted">目標: ${targets.targetF}g</span>
           </div>
           <div class="weekly-macro-item">
             <span class="label text-c">平均 Carb</span>
             <span class="val font-mono"><strong>${weeklyAvg.avgC}</strong>g</span>
-            <span class="sub text-xs text-muted">目標: ${profile.targetC}g</span>
+            <span class="sub text-xs text-muted">目標: ${targets.targetC}g</span>
           </div>
         </div>
       `

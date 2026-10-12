@@ -156,13 +156,18 @@ test('storage: migrate v1 data to v2 with exercise templates and planned sets', 
   };
 
   const migrated = migrate(v1Data);
-  assert.equal(migrated.version, 3);
+  assert.equal(migrated.version, SCHEMA_VERSION);
   // exerciseTemplates should now be objects with defaultRestSeconds and category
   assert.equal(migrated.exerciseTemplates.length, 2);
   assert.equal(migrated.exerciseTemplates[0].name, 'ベンチプレス');
   assert.equal(migrated.exerciseTemplates[0].category, '胸');
   assert.ok(migrated.exerciseTemplates[0].defaultRestSeconds > 0);
   assert.equal(migrated.profile.startWeight, 65);
+  // activeProject and weightLogs should be migrated
+  assert.ok(migrated.activeProject);
+  assert.equal(migrated.activeProject.startWeight, 65);
+  assert.ok(migrated.weightLogs.length > 0);
+  assert.equal(migrated.workouts[0].sessionType, 'workout');
   // sets should have isCompleted: true
   assert.equal(migrated.workouts[0].sets[0].isCompleted, true);
   assert.equal(migrated.workouts[0].sets[0].targetWeight, 70);
@@ -252,5 +257,69 @@ test('store: per-exercise restSeconds customization and batchUpdateExerciseRestS
   assert.equal(benchReloaded.restSeconds?.MAIN, 110);
   assert.equal(benchReloaded.restSeconds?.HEAVY, 200);
   assert.equal(benchReloaded.restSeconds?.DOWN, 50);
+});
+
+test('store: body projects, weight logs, and rest day session management', () => {
+  const storage = createMemoryStorage();
+  const store = createStore(storage);
+
+  // 1. 新規プロジェクトの作成
+  const proj = store.createProject({
+    name: '2026秋 リーンバルク',
+    goalType: 'bulk',
+    startDate: '2026-10-01',
+    startWeight: 70.0,
+    targetDate: '2026-12-31',
+    targetWeight: 74.0,
+    targetCalories: 2700,
+    targetP: 160,
+    targetF: 60,
+    targetC: 380,
+  });
+
+  assert.equal(store.getState().activeProject?.name, '2026秋 リーンバルク');
+  assert.equal(store.getState().activeProject?.startWeight, 70.0);
+  assert.equal(store.getState().profile.targetCalories, 2700);
+
+  // 2. 体重ログの記録・最新体重取得
+  store.logWeight('2026-10-05', 70.5);
+  store.logWeight('2026-10-12', 71.2);
+  assert.equal(store.getLatestWeight(), 71.2);
+  assert.equal(store.getState().weightLogs.length >= 2, true);
+
+  // 体重ログの修正
+  const logToUpdate = store.getState().weightLogs.find((l) => l.date === '2026-10-05');
+  assert.ok(logToUpdate);
+  store.updateWeightLog(logToUpdate.id, { weight: 70.7 });
+  const updatedLog = store.getState().weightLogs.find((l) => l.id === logToUpdate.id);
+  assert.equal(updatedLog?.weight, 70.7);
+
+  // 3. 次のプロジェクトを開始して前PJが完了アーカイブされること
+  const nextProj = store.createProject({
+    name: '2027春 コンテスト絞り',
+    goalType: 'cut',
+    startDate: '2027-01-01',
+    startWeight: 74.5,
+  });
+
+  assert.equal(store.getState().activeProject?.name, '2027春 コンテスト絞り');
+  assert.equal(store.getState().projects.length, 2); // defaultProj + リーンバルク
+  assert.equal(store.getState().projects[0].name, '2026秋 リーンバルク');
+  assert.equal(store.getState().projects[0].status, 'completed');
+
+  // 4. 休息日（OFF）セッションの登録
+  const restSession = store.logRestDay({
+    date: '2027-01-02',
+    sleepCategory: '7h+',
+    conditionScore: 5,
+    bodyWeight: 71.0,
+    notes: 'ストレッチ30分と交代浴でしっかりリカバリー',
+  });
+
+  assert.ok(restSession.id);
+  assert.equal(restSession.sessionType, 'rest');
+  assert.equal(restSession.notes, 'ストレッチ30分と交代浴でしっかりリカバリー');
+  assert.equal(restSession.bodyWeight, 71.0);
+  assert.equal(store.getLatestWeight(), 71.0);
 });
 

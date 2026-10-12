@@ -1966,3 +1966,246 @@ body::after {
   color: var(--color-rose);
 }
 
+/* ==========================================================================
+   Day-Mode Toggle Bar (トレーニング日 vs 休息日)
+   ========================================================================== */
+.day-mode-toggle-bar {
+  display: flex;
+  background: hsl(225 35% 10% / 0.8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: 4px;
+  gap: 4px;
+  margin-bottom: var(--space-4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.day-mode-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.day-mode-btn:hover {
+  color: var(--color-text);
+  background: hsl(225 30% 16% / 0.5);
+}
+
+.day-mode-btn.is-active {
+  background: linear-gradient(135deg, hsl(187 92% 45%), hsl(210 95% 55%));
+  color: #070b18;
+  font-weight: 700;
+  box-shadow: 0 2px 10px hsl(187 92% 45% / 0.35);
+}
+
+/* ==========================================================================
+   Rest Day (休息日・リカバリー) Card
+   ========================================================================== */
+.rest-day-card {
+  background: linear-gradient(180deg, hsl(235 35% 13% / 0.95), hsl(225 35% 9% / 0.95));
+  border: 1px solid hsl(235 50% 30% / 0.4);
+}
+
+.rest-day-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.rest-hero-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.rest-motivation-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  background: linear-gradient(135deg, hsl(265 60% 25% / 0.3), hsl(225 40% 18% / 0.3));
+  border: 1px solid hsl(265 50% 45% / 0.3);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rest-motivation-banner .banner-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.rest-checkin-box {
+  background: hsl(225 35% 8% / 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.rest-sleep-chip.is-selected {
+  background: hsl(265 89% 66% / 0.25);
+  border-color: var(--color-purple);
+  color: #c084fc;
+  font-weight: 700;
+}
+
+.badge-rest {
+  background: hsl(265 89% 66% / 0.2);
+  color: #c084fc;
+  border: 1px solid hsl(265 89% 66% / 0.3);
+}
+
+/* ==========================================================================
+   Starter Weight & Workout Notes
+   ========================================================================== */
+.starter-weight-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: var(--space-3) 0;
+  gap: 8px;
+}
+
+.workout-notes-row {
+  align-items: flex-start !important;
+}
+
+.input-textarea {
+  resize: vertical;
+  min-height: 56px;
+  line-height: 1.4;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.recent-notes-snippet {
+  border-top: 1px solid var(--color-border);
+  padding-top: 6px;
+  line-height: 1.4;
+}
+
+.history-item-rest {
+  border-left: 3px solid #c084fc;
+}
+
+.history-rest-notes {
+  background: hsl(225 35% 8% / 0.6);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-top: 4px;
+}
+
+.history-notes-box {
+  background: hsl(225 35% 8% / 0.5);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+}
+
+/* ==========================================================================
+   Project Management in Settings
+   ========================================================================== */
+.active-project-box {
+  background: hsl(225 35% 9% / 0.7);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+}
+
+.active-project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.project-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.past-projects-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.past-projects-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.past-project-card {
+  background: hsl(225 35% 9% / 0.6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+}
+
+.past-project-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ==========================================================================
+   Weight Logs Editor Table
+   ========================================================================== */
+.weight-logs-editor-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.add-weight-inline-box {
+  background: hsl(225 35% 9% / 0.5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+}
+
+.add-weight-inputs {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.weight-logs-table-wrap {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.weight-logs-table {
+  width: 100%;
+  margin: 0;
+}
+
+.modal-dialog-icon {
+  font-size: 36px;
+  text-align: center;
+}
+
+.modal-actions-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+

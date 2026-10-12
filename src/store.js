@@ -11,6 +11,8 @@ import {
   createDailyNutrition,
   createRoutineItem,
   createExerciseTemplate,
+  createBodyProject,
+  createBodyWeightLog,
   newId,
 } from './model.js';
 import { calculate1RM } from './calc.js';
@@ -22,6 +24,8 @@ import { load, save, emptyData } from './storage.js';
 /** @typedef {import('./model.js').DailyNutrition} DailyNutrition */
 /** @typedef {import('./model.js').UserProfile} UserProfile */
 /** @typedef {import('./model.js').ExerciseTemplate} ExerciseTemplate */
+/** @typedef {import('./model.js').BodyProject} BodyProject */
+/** @typedef {import('./model.js').BodyWeightLog} BodyWeightLog */
 /** @typedef {import('./storage.js').StorageLike} StorageLike */
 
 /**
@@ -80,6 +84,265 @@ export function createStore(storage, options = {}) {
       commit();
     },
 
+    // --- 体重プロジェクト (BodyProject) ---
+    /**
+     * 新規プロジェクトの開始（既存のアクティブPJがあれば完了・アーカイブ）
+     * @param {Partial<BodyProject>} projectInput
+     * @returns {BodyProject}
+     */
+    createProject(projectInput) {
+      const todayStr = now().toISOString().slice(0, 10);
+      const archived = state.activeProject
+        ? [
+            {
+              ...state.activeProject,
+              status: /** @type {import('./model.js').ProjectStatus} */ ('completed'),
+              completedAt: now().toISOString(),
+            },
+            ...state.projects,
+          ]
+        : [...state.projects];
+
+      const newProj = createBodyProject(
+        {
+          ...projectInput,
+          status: 'active',
+          startDate: projectInput.startDate || todayStr,
+        },
+        now(),
+      );
+
+      // 開始日体重を体重ログにも登録
+      let updatedLogs = [...state.weightLogs];
+      if (newProj.startWeight && !updatedLogs.some((l) => l.date === newProj.startDate)) {
+        updatedLogs.push(createBodyWeightLog(newProj.startDate, newProj.startWeight, now()));
+        updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+      }
+
+      state = {
+        ...state,
+        activeProject: newProj,
+        projects: archived,
+        weightLogs: updatedLogs,
+        profile: {
+          ...state.profile,
+          goalType: newProj.goalType,
+          targetWeight: newProj.targetWeight,
+          targetDate: newProj.targetDate,
+          targetCalories: newProj.targetCalories,
+          targetP: newProj.targetP,
+          targetF: newProj.targetF,
+          targetC: newProj.targetC,
+          currentWeight: newProj.startWeight,
+        },
+      };
+      commit();
+      return newProj;
+    },
+
+    /**
+     * 進行中プロジェクトの更新
+     * @param {Partial<BodyProject>} patch
+     */
+    updateActiveProject(patch) {
+      if (!state.activeProject) return;
+      const updatedProj = {
+        ...state.activeProject,
+        ...patch,
+      };
+      state = {
+        ...state,
+        activeProject: updatedProj,
+        profile: {
+          ...state.profile,
+          goalType: updatedProj.goalType,
+          targetWeight: updatedProj.targetWeight,
+          targetDate: updatedProj.targetDate,
+          targetCalories: updatedProj.targetCalories,
+          targetP: updatedProj.targetP,
+          targetF: updatedProj.targetF,
+          targetC: updatedProj.targetC,
+        },
+      };
+      commit();
+    },
+
+    /**
+     * 進行中プロジェクトを完了してアーカイブ
+     */
+    completeActiveProject() {
+      if (!state.activeProject) return;
+      const completedProj = {
+        ...state.activeProject,
+        status: /** @type {import('./model.js').ProjectStatus} */ ('completed'),
+        completedAt: now().toISOString(),
+      };
+      state = {
+        ...state,
+        activeProject: null,
+        projects: [completedProj, ...state.projects],
+      };
+      commit();
+    },
+
+    // --- 体重ログ (BodyWeightLog) ---
+    /**
+     * 体重の記録・更新（当日または指定日）
+     * @param {string} date YYYY-MM-DD
+     * @param {number} weight 体重 (kg)
+     * @returns {BodyWeightLog}
+     */
+    logWeight(date, weight) {
+      const cleanWeight = Math.round(Number(weight) * 10) / 10;
+      const existingIndex = state.weightLogs.findIndex((l) => l.date === date);
+      let updatedLogs = [...state.weightLogs];
+      let record;
+
+      if (existingIndex >= 0) {
+        record = {
+          ...updatedLogs[existingIndex],
+          weight: cleanWeight,
+          loggedAt: now().toISOString(),
+        };
+        updatedLogs[existingIndex] = record;
+      } else {
+        record = createBodyWeightLog(date, cleanWeight, now());
+        updatedLogs.push(record);
+      }
+      updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+
+      state = {
+        ...state,
+        weightLogs: updatedLogs,
+        profile: {
+          ...state.profile,
+          currentWeight: cleanWeight,
+        },
+      };
+      commit();
+      return record;
+    },
+
+    /**
+     * 過去体重ログの更新
+     * @param {string} id
+     * @param {Partial<BodyWeightLog>} patch
+     */
+    updateWeightLog(id, patch) {
+      const updatedLogs = state.weightLogs.map((l) => {
+        if (l.id !== id) return l;
+        const w = patch.weight !== undefined ? Math.round(Number(patch.weight) * 10) / 10 : l.weight;
+        const d = patch.date ? patch.date.trim() : l.date;
+        return { ...l, ...patch, date: d, weight: w };
+      });
+      updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+
+      const latest = updatedLogs[updatedLogs.length - 1];
+      state = {
+        ...state,
+        weightLogs: updatedLogs,
+        profile: {
+          ...state.profile,
+          currentWeight: latest ? latest.weight : state.profile.currentWeight,
+        },
+      };
+      commit();
+    },
+
+    /**
+     * 体重ログの削除
+     * @param {string} id
+     */
+    deleteWeightLog(id) {
+      const updatedLogs = state.weightLogs.filter((l) => l.id !== id);
+      const latest = updatedLogs[updatedLogs.length - 1];
+      state = {
+        ...state,
+        weightLogs: updatedLogs,
+        profile: {
+          ...state.profile,
+          currentWeight: latest ? latest.weight : state.profile.currentWeight,
+        },
+      };
+      commit();
+    },
+
+    /**
+     * 最新の記録体重を取得（なければPJ開始体重または初期プロファイル体重）
+     * @returns {number}
+     */
+    getLatestWeight() {
+      if (state.weightLogs.length > 0) {
+        const sorted = [...state.weightLogs].sort((a, b) => a.date.localeCompare(b.date));
+        return sorted[sorted.length - 1].weight;
+      }
+      return state.activeProject?.startWeight || state.profile.currentWeight || 68.0;
+    },
+
+    // --- 休息日（OFF）セッション登録 ---
+    /**
+     * 休息日（リカバリー）の記録・更新
+     * @param {{ date?: string, sleepCategory?: import('./model.js').SleepCategory, conditionScore?: number, bodyWeight?: number | null, notes?: string }} input
+     * @returns {WorkoutSession}
+     */
+    logRestDay(input = {}) {
+      const todayStr = input.date || now().toISOString().slice(0, 10);
+      const existing = state.workouts.find((w) => w.date === todayStr);
+
+      if (input.bodyWeight !== undefined && input.bodyWeight !== null && Number(input.bodyWeight) > 0) {
+        const cleanWeight = Math.round(Number(input.bodyWeight) * 10) / 10;
+        const existingLogIndex = state.weightLogs.findIndex((l) => l.date === todayStr);
+        let updatedLogs = [...state.weightLogs];
+        if (existingLogIndex >= 0) {
+          updatedLogs[existingLogIndex] = { ...updatedLogs[existingLogIndex], weight: cleanWeight };
+        } else {
+          updatedLogs.push(createBodyWeightLog(todayStr, cleanWeight, now()));
+        }
+        updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+        state = {
+          ...state,
+          weightLogs: updatedLogs,
+          profile: { ...state.profile, currentWeight: cleanWeight },
+        };
+      }
+
+      /** @type {WorkoutSession} */
+      let session;
+      if (existing) {
+        session = {
+          ...existing,
+          sessionType: /** @type {import('./model.js').SessionType} */ ('rest'),
+          sleepCategory: input.sleepCategory || existing.sleepCategory,
+          conditionScore: input.conditionScore !== undefined ? Number(input.conditionScore) : existing.conditionScore,
+          bodyWeight: input.bodyWeight !== undefined && input.bodyWeight !== null ? Number(input.bodyWeight) : existing.bodyWeight,
+          notes: input.notes !== undefined ? input.notes.trim() : existing.notes,
+        };
+        state = {
+          ...state,
+          workouts: state.workouts.map((w) => (w.id === existing.id ? session : w)),
+        };
+      } else {
+        session = createWorkoutSession(
+          {
+            date: todayStr,
+            sessionType: 'rest',
+            sleepCategory: input.sleepCategory,
+            conditionScore: input.conditionScore,
+            bodyWeight: input.bodyWeight,
+            notes: input.notes,
+            sets: [],
+          },
+          now(),
+        );
+        state = {
+          ...state,
+          workouts: [session, ...state.workouts],
+        };
+      }
+      commit();
+      return session;
+    },
+
     // --- ワークアウト ---
     /**
      * @param {Partial<WorkoutSession>} input
@@ -87,6 +350,24 @@ export function createStore(storage, options = {}) {
      */
     addWorkout(input) {
       const session = createWorkoutSession(input, now());
+      if (input.bodyWeight !== undefined && input.bodyWeight !== null && Number(input.bodyWeight) > 0) {
+        const cleanWeight = Math.round(Number(input.bodyWeight) * 10) / 10;
+        const d = input.date || now().toISOString().slice(0, 10);
+        const existingLogIndex = state.weightLogs.findIndex((l) => l.date === d);
+        let updatedLogs = [...state.weightLogs];
+        if (existingLogIndex >= 0) {
+          updatedLogs[existingLogIndex] = { ...updatedLogs[existingLogIndex], weight: cleanWeight };
+        } else {
+          updatedLogs.push(createBodyWeightLog(d, cleanWeight, now()));
+        }
+        updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+        state = {
+          ...state,
+          weightLogs: updatedLogs,
+          profile: { ...state.profile, currentWeight: cleanWeight },
+        };
+      }
+
       state = {
         ...state,
         workouts: [session, ...state.workouts],
@@ -100,6 +381,25 @@ export function createStore(storage, options = {}) {
      * @param {Partial<WorkoutSession>} patch
      */
     updateWorkout(id, patch) {
+      if (patch.bodyWeight !== undefined && patch.bodyWeight !== null && Number(patch.bodyWeight) > 0) {
+        const targetW = state.workouts.find((w) => w.id === id);
+        const d = targetW?.date || now().toISOString().slice(0, 10);
+        const cleanWeight = Math.round(Number(patch.bodyWeight) * 10) / 10;
+        const existingLogIndex = state.weightLogs.findIndex((l) => l.date === d);
+        let updatedLogs = [...state.weightLogs];
+        if (existingLogIndex >= 0) {
+          updatedLogs[existingLogIndex] = { ...updatedLogs[existingLogIndex], weight: cleanWeight };
+        } else {
+          updatedLogs.push(createBodyWeightLog(d, cleanWeight, now()));
+        }
+        updatedLogs.sort((a, b) => a.date.localeCompare(b.date));
+        state = {
+          ...state,
+          weightLogs: updatedLogs,
+          profile: { ...state.profile, currentWeight: cleanWeight },
+        };
+      }
+
       state = {
         ...state,
         workouts: state.workouts.map((w) => (w.id === id ? { ...w, ...patch } : w)),

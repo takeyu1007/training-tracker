@@ -15,9 +15,10 @@ let isResetArmed = false;
 const collapsedSections = new Set();
 
 /** @type {any} */
-let pendingProfilePayload = null;
+let pendingPayload = null;
 /** @type {any} */
 let pendingSafetyCheck = null;
+let pendingPayloadIsProject = false;
 
 /**
  * @param {import('../store.js').Store} store
@@ -38,14 +39,19 @@ function bindSafetyModalEvents() {
 
     // 推奨ペースに自動修正して保存
     if (target.closest('#btn-safety-auto-adjust')) {
-      if (pendingProfilePayload && pendingSafetyCheck) {
+      if (pendingPayload && pendingSafetyCheck) {
         const adjustedPayload = {
-          ...pendingProfilePayload,
+          ...pendingPayload,
           targetDate: pendingSafetyCheck.recommendedTargetDate,
         };
-        storeInstance.updateProfile(adjustedPayload);
+        if (pendingPayloadIsProject) {
+          storeInstance.updateActiveProject(adjustedPayload);
+          showToast('推奨安全ペース（期日を延長）に修正してプロジェクトを保存しました！', 'success');
+        } else {
+          storeInstance.updateProfile(adjustedPayload);
+          showToast('推奨安全ペース（期日を延長）に修正して保存しました！', 'success');
+        }
         hideSafetyModal();
-        showToast('推奨安全ペース（期日を延長）に修正して保存しました！', 'success');
         renderSettings();
       }
       return;
@@ -53,10 +59,15 @@ function bindSafetyModalEvents() {
 
     // リスクを理解してこのまま設定（ユーザー要望: 強制保存可能）
     if (target.closest('#btn-safety-proceed-anyway')) {
-      if (pendingProfilePayload) {
-        storeInstance.updateProfile(pendingProfilePayload);
+      if (pendingPayload) {
+        if (pendingPayloadIsProject) {
+          storeInstance.updateActiveProject(pendingPayload);
+          showToast('リスクを理解した上でプロジェクト設定を保存しました', 'warning');
+        } else {
+          storeInstance.updateProfile(pendingPayload);
+          showToast('リスクを理解した上で設定を保存しました', 'warning');
+        }
         hideSafetyModal();
-        showToast('リスクを理解した上で設定を保存しました', 'warning');
         renderSettings();
       }
       return;
@@ -73,10 +84,12 @@ function bindSafetyModalEvents() {
 /**
  * @param {ReturnType<typeof checkPaceSafety>} check
  * @param {any} payload
+ * @param {boolean} [isProject=false]
  */
-function showSafetyModal(check, payload) {
-  pendingProfilePayload = payload;
+function showSafetyModal(check, payload, isProject = false) {
+  pendingPayload = payload;
   pendingSafetyCheck = check;
+  pendingPayloadIsProject = isProject;
   const modal = document.getElementById('safety-modal');
   const body = document.getElementById('safety-modal-body');
   const title = document.getElementById('safety-modal-title');
@@ -114,8 +127,9 @@ function hideSafetyModal() {
     modal.style.display = 'none';
     modal.setAttribute('aria-hidden', 'true');
   }
-  pendingProfilePayload = null;
+  pendingPayload = null;
   pendingSafetyCheck = null;
+  pendingPayloadIsProject = false;
 }
 
 function bindEvents() {
@@ -159,15 +173,100 @@ function bindEvents() {
       return;
     }
 
-    // プロファイル保存
+    // 基本プロファイル保存
     if (target.closest('#btn-save-profile')) {
       handleSaveProfile();
       return;
     }
 
-    // 目標PFCの自動再計算
-    if (target.closest('#btn-autocalc-pfc')) {
-      handleAutoCalcPFC();
+    // プロジェクト設定保存
+    if (target.closest('#btn-save-project')) {
+      handleSaveProject();
+      return;
+    }
+
+    // プロジェクト目標PFCの自動再計算
+    if (target.closest('#btn-autocalc-project-pfc')) {
+      handleAutoCalcProjectPFC();
+      return;
+    }
+
+    // 進行中プロジェクトの完了・アーカイブ
+    if (target.closest('#btn-complete-project')) {
+      storeInstance.completeActiveProject();
+      showToast('🎉 プロジェクトを完了・アーカイブしました！お疲れ様でした', 'success');
+      renderSettings();
+      return;
+    }
+
+    // 新規プロジェクト開始ボタン
+    if (target.closest('#btn-start-new-project')) {
+      const active = storeInstance.getState().activeProject;
+      if (active) {
+        showConfirmNewProjectModal(active.title || active.name || '進行中プロジェクト');
+      } else {
+        startNewProjectQuickly();
+      }
+      return;
+    }
+
+    // 新規プロジェクト確認モーダル: 承認
+    if (target.closest('#btn-modal-confirm-new-project')) {
+      storeInstance.completeActiveProject();
+      startNewProjectQuickly();
+      hideConfirmNewProjectModal();
+      return;
+    }
+
+    // 新規プロジェクト確認モーダル: キャンセル
+    if (target.closest('#btn-modal-cancel-new-project') || target.closest('#modal-new-project-close')) {
+      hideConfirmNewProjectModal();
+      return;
+    }
+
+    // 過去体重の追加
+    if (target.closest('#btn-add-weight-log')) {
+      const dInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-add-weight-date'));
+      const wInput = /** @type {HTMLInputElement | null} */ (document.getElementById('input-add-weight-val'));
+      const d = dInput?.value || new Date().toISOString().slice(0, 10);
+      const w = Number(wInput?.value) || 0;
+      if (w > 0) {
+        storeInstance.logWeight(d, w);
+        showToast(`${d} の体重 ${w}kg を記録しました！`, 'success');
+        renderSettings();
+      } else {
+        showToast('体重を正しく入力してください', 'warning');
+      }
+      return;
+    }
+
+    // 過去体重ログの更新
+    const saveWeightBtn = target.closest('.btn-save-weight-log');
+    if (saveWeightBtn) {
+      const id = saveWeightBtn.getAttribute('data-log-id');
+      if (id) {
+        const dInput = /** @type {HTMLInputElement | null} */ (document.querySelector(`.weight-log-date[data-log-id="${id}"]`));
+        const wInput = /** @type {HTMLInputElement | null} */ (document.querySelector(`.weight-log-weight[data-log-id="${id}"]`));
+        const d = dInput?.value;
+        const w = Number(wInput?.value);
+        if (d && w > 0) {
+          storeInstance.updateWeightLog(id, { date: d, weight: w });
+          showToast('体重記録を更新しました！', 'success');
+          renderSettings();
+        }
+      }
+      return;
+    }
+
+    // 過去体重ログの削除
+    const delWeightBtn = target.closest('.btn-delete-weight-log');
+    if (delWeightBtn) {
+      const id = delWeightBtn.getAttribute('data-log-id');
+      if (id) {
+        storeInstance.deleteWeightLog(id);
+        showToast('体重記録を削除しました', 'info');
+        renderSettings();
+      }
       return;
     }
 
@@ -346,80 +445,140 @@ function bindEvents() {
 }
 
 function handleSaveProfile() {
-  const name = /** @type {HTMLInputElement} */ (document.getElementById('profile-name'))?.value;
-  const height = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-height'))?.value);
-  const startWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-start-weight'))?.value);
-  const currentWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-weight'))?.value);
-  const targetWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-target-weight'))?.value);
-  const targetDate = /** @type {HTMLInputElement} */ (document.getElementById('profile-target-date'))?.value || '';
-  const age = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-age'))?.value);
-  const gender = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-gender'))?.value);
-  const goalType = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-goal'))?.value);
-  const activityLevel = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-activity'))?.value);
+  const name = /** @type {HTMLInputElement} */ (document.getElementById('profile-name'))?.value || '';
+  const height = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-height'))?.value) || 172;
+  const age = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-age'))?.value) || 28;
+  const gender = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-gender'))?.value || 'male');
+  const activityLevel = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-activity'))?.value || 'moderate');
 
-  const targetCalories = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-calories'))?.value);
-  const targetP = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-p'))?.value);
-  const targetF = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-f'))?.value);
-  const targetC = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-c'))?.value);
-
-  const payload = {
+  storeInstance.updateProfile({
     name,
     height,
-    startWeight: startWeight || currentWeight,
-    currentWeight,
-    targetWeight,
-    targetDate,
     age,
     gender,
-    goalType,
     activityLevel,
+  });
+  showToast('基本プロファイルを保存しました！', 'success');
+  renderSettings();
+}
+
+function handleSaveProject() {
+  const title = /** @type {HTMLInputElement} */ (document.getElementById('proj-title'))?.value || 'ボディメイクPJ';
+  const goalType = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('proj-goal'))?.value || 'cut');
+  const startDate = /** @type {HTMLInputElement} */ (document.getElementById('proj-start-date'))?.value || new Date().toISOString().slice(0, 10);
+  const startWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-start-weight'))?.value) || storeInstance.getLatestWeight();
+  const targetDate = /** @type {HTMLInputElement} */ (document.getElementById('proj-target-date'))?.value || '';
+  const targetWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-target-weight'))?.value) || startWeight;
+  const targetCalories = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-calories'))?.value) || 2200;
+  const targetP = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-p'))?.value) || 150;
+  const targetF = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-f'))?.value) || 55;
+  const targetC = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-c'))?.value) || 250;
+  const notes = /** @type {HTMLTextAreaElement} */ (document.getElementById('proj-notes'))?.value || '';
+
+  const payload = {
+    title,
+    goalType,
+    startDate,
+    startWeight,
+    targetDate,
+    targetWeight,
     targetCalories,
     targetP,
     targetF,
     targetC,
-    defaultRestSeconds: storeInstance.getState().profile.defaultRestSeconds || {
-      UP: 60,
-      MAIN: 120,
-      HEAVY: 180,
-      DOWN: 60,
-    },
+    notes,
   };
 
   // ペースの安全性チェック（無理な減量・増量時の警告ポップアップ）
   if (targetDate) {
-    const safetyCheck = checkPaceSafety(currentWeight, targetWeight, targetDate);
+    const safetyCheck = checkPaceSafety(startWeight, targetWeight, targetDate);
     if (safetyCheck.isUnsafe) {
-      showSafetyModal(safetyCheck, payload);
+      showSafetyModal(safetyCheck, payload, true);
       return;
     }
   }
 
-  storeInstance.updateProfile(payload);
-  showToast('プロファイルを更新しました！', 'success');
+  storeInstance.updateActiveProject(payload);
+  showToast('プロジェクト設定を保存しました！🎯', 'success');
   renderSettings();
 }
 
-function handleAutoCalcPFC() {
-  const height = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-height'))?.value) || 172;
-  const currentWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-weight'))?.value) || 68;
-  const age = Number(/** @type {HTMLInputElement} */ (document.getElementById('profile-age'))?.value) || 28;
-  const gender = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-gender'))?.value) || 'male';
-  const goalType = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-goal'))?.value) || 'cut';
-  const activityLevel = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('profile-activity'))?.value) || 'moderate';
+function handleAutoCalcProjectPFC() {
+  const profile = storeInstance.getState().profile;
+  const startWeight = Number(/** @type {HTMLInputElement} */ (document.getElementById('proj-start-weight'))?.value) || storeInstance.getLatestWeight();
+  const goalType = /** @type {any} */ (/** @type {HTMLSelectElement} */ (document.getElementById('proj-goal'))?.value || 'cut');
 
-  const result = calculateTargetPFC({ height, currentWeight, age, gender, goalType, activityLevel });
+  const result = calculateTargetPFC({
+    height: profile.height,
+    currentWeight: startWeight,
+    age: profile.age,
+    gender: profile.gender,
+    goalType,
+    activityLevel: profile.activityLevel,
+  });
 
-  const calInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-calories'));
-  const pInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-p'));
-  const fInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-f'));
-  const cInput = /** @type {HTMLInputElement | null} */ (document.getElementById('profile-c'));
+  const calInput = /** @type {HTMLInputElement | null} */ (document.getElementById('proj-calories'));
+  const pInput = /** @type {HTMLInputElement | null} */ (document.getElementById('proj-p'));
+  const fInput = /** @type {HTMLInputElement | null} */ (document.getElementById('proj-f'));
+  const cInput = /** @type {HTMLInputElement | null} */ (document.getElementById('proj-c'));
 
   if (calInput) calInput.value = String(result.targetCalories);
   if (pInput) pInput.value = String(result.targetP);
   if (fInput) fInput.value = String(result.targetF);
   if (cInput) cInput.value = String(result.targetC);
 
-  showToast('目標PFCを推奨値で自動計算しました！「設定を保存」で適用してください', 'info');
+  showToast('目標PFCを推奨値で自動計算しました！「プロジェクト設定を保存」で適用してください', 'info');
+}
+
+function startNewProjectQuickly() {
+  const profile = storeInstance.getState().profile;
+  const curW = storeInstance.getLatestWeight();
+  const today = new Date().toISOString().slice(0, 10);
+  const targetD = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+  const defaultTargetW = Math.round((curW - 3) * 10) / 10;
+  const pfc = calculateTargetPFC({
+    height: profile.height,
+    currentWeight: curW,
+    age: profile.age,
+    gender: profile.gender,
+    goalType: 'cut',
+    activityLevel: profile.activityLevel,
+  });
+
+  storeInstance.createProject({
+    title: '減量フェーズ (Cut)',
+    goalType: 'cut',
+    startDate: today,
+    startWeight: curW,
+    targetDate: targetD,
+    targetWeight: defaultTargetW,
+    targetCalories: pfc.targetCalories,
+    targetP: pfc.targetP,
+    targetF: pfc.targetF,
+    targetC: pfc.targetC,
+    notes: '',
+  });
+  showToast('新規プロジェクトを開始しました！目標値を調整してください 🎯', 'success');
+  renderSettings();
+}
+
+/** @param {string} activeTitle */
+function showConfirmNewProjectModal(activeTitle) {
+  const modal = document.getElementById('modal-confirm-new-project');
+  const text = document.getElementById('modal-confirm-active-title');
+  if (text) text.textContent = activeTitle;
+  if (modal) {
+    modal.style.display = 'flex';
+    modal.setAttribute('aria-hidden', 'false');
+  }
+}
+
+function hideConfirmNewProjectModal() {
+  const modal = document.getElementById('modal-confirm-new-project');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.setAttribute('aria-hidden', 'true');
+  }
 }
 
 function handleAddRoutine() {
@@ -455,27 +614,35 @@ export function renderSettings() {
 
   const state = storeInstance.getState();
   const profile = state.profile;
+  const activeProj = state.activeProject;
+  const pastProjects = state.projects;
+  const weightLogs = [...state.weightLogs].sort((a, b) => b.date.localeCompare(a.date));
   const routines = state.routines;
   const exerciseTemplates = state.exerciseTemplates;
+  const today = new Date().toISOString().slice(0, 10);
 
   const isProfileCollapsed = collapsedSections.has('profile');
+  const isProjectsCollapsed = collapsedSections.has('projects');
   const isExercisesCollapsed = collapsedSections.has('exercises');
   const isRoutinesCollapsed = collapsedSections.has('routines');
   const isSupplementsCollapsed = collapsedSections.has('supplements');
   const isBackupCollapsed = collapsedSections.has('backup');
 
   container.innerHTML = `
-    <!-- プロファイル設定 -->
+    <!-- ユーザー基本プロファイル -->
     <section class="card settings-card settings-accordion-card ${isProfileCollapsed ? 'is-collapsed' : ''}" data-section-id="profile">
       <button type="button" class="settings-accordion-header" aria-expanded="${!isProfileCollapsed}">
         <div class="accordion-title-wrap">
           <span class="accordion-icon">👤</span>
-          <h3 class="card-title">ユーザープロファイル＆目標設定</h3>
+          <h3 class="card-title">ユーザー基本プロファイル</h3>
         </div>
         <span class="settings-accordion-chevron">▾</span>
       </button>
 
       <div class="settings-accordion-body">
+        <p class="text-muted text-sm mb-3">
+          身長や年齢などの不変・基本属性です。体重増減目標は下の「体重・増減量プロジェクト管理」で管理します。
+        </p>
         <div class="form-grid">
           <div class="form-group">
             <label for="profile-name">お名前 / ニックネーム</label>
@@ -496,32 +663,8 @@ export function renderSettings() {
             <label for="profile-age">年齢</label>
             <input type="number" id="profile-age" class="input" value="${profile.age}">
           </div>
-          <div class="form-group">
-            <label for="profile-start-weight">開始時体重 (kg)</label>
-            <input type="number" id="profile-start-weight" class="input" step="0.1" value="${profile.startWeight !== undefined ? profile.startWeight : profile.currentWeight}">
-          </div>
-          <div class="form-group">
-            <label for="profile-weight">現在体重 (kg)</label>
-            <input type="number" id="profile-weight" class="input" step="0.1" value="${profile.currentWeight}">
-          </div>
-          <div class="form-group">
-            <label for="profile-target-weight">目標体重 (kg)</label>
-            <input type="number" id="profile-target-weight" class="input" step="0.1" value="${profile.targetWeight}">
-          </div>
-          <div class="form-group">
-            <label for="profile-target-date">目標達成予定日</label>
-            <input type="date" id="profile-target-date" class="input" value="${profile.targetDate || ''}">
-          </div>
-          <div class="form-group">
-            <label for="profile-goal">目的</label>
-            <select id="profile-goal" class="input">
-              <option value="cut" ${profile.goalType === 'cut' ? 'selected' : ''}>減量 (Cut / カロリー制限)</option>
-              <option value="maintain" ${profile.goalType === 'maintain' ? 'selected' : ''}>維持 (Maintain / 体型キープ)</option>
-              <option value="bulk" ${profile.goalType === 'bulk' ? 'selected' : ''}>増量 (Bulk / 筋肥大・カロリー余剰)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="profile-activity">活動レベル</label>
+          <div class="form-group form-group-full">
+            <label for="profile-activity">普段の活動レベル</label>
             <select id="profile-activity" class="input">
               <option value="sedentary" ${profile.activityLevel === 'sedentary' ? 'selected' : ''}>デスクワーク・運動少なめ</option>
               <option value="light" ${profile.activityLevel === 'light' ? 'selected' : ''}>軽い運動 (週1〜2回)</option>
@@ -531,40 +674,260 @@ export function renderSettings() {
           </div>
         </div>
 
-        <!-- 目標PFCセクション -->
-        <div class="pfc-calc-section">
-          <div class="pfc-calc-header">
-            <h4 class="font-bold">目標カロリー＆PFCバランス</h4>
-            <button type="button" id="btn-autocalc-pfc" class="btn btn-sm btn-outline-cyan">
-              ⚡ 自動計算して反映
-            </button>
-          </div>
-
-          <div class="pfc-inputs-grid">
-            <div class="form-group">
-              <label for="profile-calories">目標総カロリー (kcal)</label>
-              <input type="number" id="profile-calories" class="input font-mono" value="${profile.targetCalories}">
-            </div>
-            <div class="form-group">
-              <label for="profile-p">タンパク質 P (g)</label>
-              <input type="number" id="profile-p" class="input font-mono" value="${profile.targetP}">
-            </div>
-            <div class="form-group">
-              <label for="profile-f">脂質 F (g)</label>
-              <input type="number" id="profile-f" class="input font-mono" value="${profile.targetF}">
-            </div>
-            <div class="form-group">
-              <label for="profile-c">炭水化物 C (g)</label>
-              <input type="number" id="profile-c" class="input font-mono" value="${profile.targetC}">
-            </div>
-          </div>
-        </div>
-
         <button type="button" id="btn-save-profile" class="btn btn-primary btn-large btn-glow mt-4">
-          💾 プロファイル設定を保存
+          💾 基本プロファイルを保存
         </button>
       </div>
     </section>
+
+    <!-- 体重・増減量プロジェクト管理＆過去体重編集 -->
+    <section class="card settings-card settings-accordion-card ${isProjectsCollapsed ? 'is-collapsed' : ''}" data-section-id="projects">
+      <button type="button" class="settings-accordion-header" aria-expanded="${!isProjectsCollapsed}">
+        <div class="accordion-title-wrap">
+          <span class="accordion-icon">🎯</span>
+          <h3 class="card-title">体重・増減量プロジェクト管理</h3>
+        </div>
+        <span class="settings-accordion-chevron">▾</span>
+      </button>
+
+      <div class="settings-accordion-body">
+        <p class="text-muted text-sm mb-3">
+          増量・減量をプロジェクトとして期日・開始体重・目標体重で独立管理します。過去の体重履歴も直接修正可能です。
+        </p>
+
+        <!-- 進行中のプロジェクト -->
+        <div class="active-project-box">
+          <div class="active-project-header">
+            <div>
+              <span class="font-bold text-cyan text-sm">🎯 進行中のプロジェクト</span>
+              ${
+                activeProj
+                  ? `<span class="badge ${activeProj.goalType === 'cut' ? 'badge-primary' : activeProj.goalType === 'bulk' ? 'badge-success' : 'badge-muted'} ml-2">
+                      ${activeProj.goalType === 'cut' ? '減量 (Cut)' : activeProj.goalType === 'bulk' ? '増量 (Bulk)' : '維持 (Maintain)'}
+                     </span>`
+                  : '<span class="badge badge-muted ml-2">なし</span>'
+              }
+            </div>
+            <button type="button" id="btn-start-new-project" class="btn btn-sm btn-outline-cyan">
+              ＋ 新規プロジェクトを開始
+            </button>
+          </div>
+
+          ${
+            activeProj
+              ? `
+            <div class="form-grid mt-3">
+              <div class="form-group form-group-full">
+                <label for="proj-title">プロジェクト名</label>
+                <input type="text" id="proj-title" class="input" value="${escapeHtml(activeProj.title)}">
+              </div>
+
+              <div class="form-group">
+                <label for="proj-goal">目的</label>
+                <select id="proj-goal" class="input">
+                  <option value="cut" ${activeProj.goalType === 'cut' ? 'selected' : ''}>減量 (Cut / カロリー制限)</option>
+                  <option value="maintain" ${activeProj.goalType === 'maintain' ? 'selected' : ''}>維持 (Maintain / 体型キープ)</option>
+                  <option value="bulk" ${activeProj.goalType === 'bulk' ? 'selected' : ''}>増量 (Bulk / 筋肥大・カロリー余剰)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="proj-start-date">開始日</label>
+                <input type="date" id="proj-start-date" class="input" value="${activeProj.startDate}">
+              </div>
+
+              <div class="form-group">
+                <label for="proj-start-weight">開始時体重 (kg)</label>
+                <input type="number" id="proj-start-weight" class="input font-mono" step="0.1" value="${activeProj.startWeight}">
+              </div>
+
+              <div class="form-group">
+                <label for="proj-target-date">目標達成予定日</label>
+                <input type="date" id="proj-target-date" class="input" value="${activeProj.targetDate}">
+              </div>
+
+              <div class="form-group">
+                <label for="proj-target-weight">目標体重 (kg)</label>
+                <input type="number" id="proj-target-weight" class="input font-mono" step="0.1" value="${activeProj.targetWeight}">
+              </div>
+            </div>
+
+            <!-- 目標PFCセクション -->
+            <div class="pfc-calc-section mt-3">
+              <div class="pfc-calc-header">
+                <h4 class="font-bold text-sm">目標カロリー＆PFCバランス</h4>
+                <button type="button" id="btn-autocalc-project-pfc" class="btn btn-xs btn-outline-cyan">
+                  ⚡ 推奨PFCを自動計算
+                </button>
+              </div>
+
+              <div class="pfc-inputs-grid">
+                <div class="form-group">
+                  <label for="proj-calories">目標総カロリー (kcal)</label>
+                  <input type="number" id="proj-calories" class="input font-mono" value="${activeProj.targetCalories}">
+                </div>
+                <div class="form-group">
+                  <label for="proj-p">タンパク質 P (g)</label>
+                  <input type="number" id="proj-p" class="input font-mono" value="${activeProj.targetP}">
+                </div>
+                <div class="form-group">
+                  <label for="proj-f">脂質 F (g)</label>
+                  <input type="number" id="proj-f" class="input font-mono" value="${activeProj.targetF}">
+                </div>
+                <div class="form-group">
+                  <label for="proj-c">炭水化物 C (g)</label>
+                  <input type="number" id="proj-c" class="input font-mono" value="${activeProj.targetC}">
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group mt-3 text-left">
+              <label for="proj-notes">📝 プロジェクト作戦・メモ（任意）</label>
+              <textarea id="proj-notes" class="input input-textarea" rows="2" placeholder="カーボサイクルの計画、有酸素の導入、チートデイの条件など...">${escapeHtml(activeProj.notes || '')}</textarea>
+            </div>
+
+            <div class="project-actions-row mt-4">
+              <button type="button" id="btn-save-project" class="btn btn-primary btn-glow">
+                💾 プロジェクト設定を保存
+              </button>
+              <button type="button" id="btn-complete-project" class="btn btn-outline-cyan btn-sm">
+                🏁 現在のプロジェクトを完了・終了
+              </button>
+            </div>
+          `
+              : `
+            <div class="empty-hint text-center py-4">
+              <p class="text-sm text-muted">現在アクティブなプロジェクトはありません。「＋ 新規プロジェクトを開始」から目標を設定してください。</p>
+            </div>
+          `
+          }
+        </div>
+
+        <!-- 過去のプロジェクトアーカイブ一覧 -->
+        ${
+          pastProjects.length > 0
+            ? `
+          <div class="past-projects-section mt-4">
+            <h4 class="font-bold text-sm text-muted mb-2">📜 過去のプロジェクト一覧（アーカイブ）</h4>
+            <div class="past-projects-list">
+              ${pastProjects
+                .map(
+                  (p) => `
+                <div class="past-project-card">
+                  <div class="past-project-header">
+                    <span class="font-bold">${escapeHtml(p.title)}</span>
+                    <span class="badge ${p.goalType === 'cut' ? 'badge-primary' : 'badge-success'}">${p.goalType === 'cut' ? '減量' : p.goalType === 'bulk' ? '増量' : '維持'}</span>
+                  </div>
+                  <div class="past-project-details text-xs text-muted mt-1">
+                    <span>期間: ${p.startDate} 〜 ${p.targetDate || '未定'}</span>
+                    <span class="ml-2">体重: <strong>${p.startWeight}kg</strong> ➔ 目標 <strong>${p.targetWeight}kg</strong></span>
+                  </div>
+                  ${p.notes ? `<p class="text-xs text-faint mt-1">${escapeHtml(p.notes)}</p>` : ''}
+                </div>
+              `,
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+            : ''
+        }
+
+        <!-- 過去の体重記録・編集テーブル -->
+        <div class="weight-logs-editor-section mt-4">
+          <div class="flex-between items-center mb-2">
+            <div>
+              <h4 class="font-bold text-sm text-cyan">⚖️ 過去の体重記録・編集</h4>
+              <p class="text-xs text-muted">誤入力の修正や測り忘れ日の追加・削除が可能です</p>
+            </div>
+          </div>
+
+          <!-- 新規体重追加フォーム -->
+          <div class="add-weight-inline-box">
+            <div class="add-weight-inputs">
+              <input type="date" id="input-add-weight-date" class="input input-sm" value="${today}">
+              <div class="input-with-unit-inline">
+                <input type="number" id="input-add-weight-val" class="input input-sm font-mono text-center" step="0.1" placeholder="例: 68.2">
+                <span class="unit">kg</span>
+              </div>
+              <button type="button" id="btn-add-weight-log" class="btn btn-sm btn-outline-cyan">
+                ＋ 追加
+              </button>
+            </div>
+          </div>
+
+          <!-- 体重履歴テーブル -->
+          <div class="weight-logs-table-wrap mt-3">
+            <table class="sets-table weight-logs-table">
+              <thead>
+                <tr>
+                  <th>記録日</th>
+                  <th>体重 (kg)</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${
+                  weightLogs.length === 0
+                    ? `<tr><td colspan="3" class="text-center text-muted text-sm py-3">体重記録はありません</td></tr>`
+                    : weightLogs
+                        .slice(0, 20)
+                        .map(
+                          (l) => `
+                  <tr>
+                    <td>
+                      <input type="date" class="input input-table weight-log-date font-mono" data-log-id="${l.id}" value="${l.date}">
+                    </td>
+                    <td>
+                      <div class="input-with-unit-inline">
+                        <input type="number" step="0.1" class="input input-table weight-log-weight font-mono text-center" data-log-id="${l.id}" value="${l.weight}">
+                        <span class="unit">kg</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="table-actions">
+                        <button type="button" class="btn btn-xs btn-outline-cyan btn-save-weight-log" data-log-id="${l.id}" title="保存">
+                          💾 保存
+                        </button>
+                        <button type="button" class="btn-icon btn-delete-weight-log" data-log-id="${l.id}" title="削除">
+                          🗑
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                `,
+                        )
+                        .join('')
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 新規プロジェクト開始 確認モーダル -->
+    <div id="modal-confirm-new-project" class="timer-modal" role="dialog" aria-modal="true" style="display: none;">
+      <div class="timer-modal-dialog">
+        <button type="button" id="modal-new-project-close" class="timer-modal-close">✕</button>
+        <div class="modal-dialog-icon">⚠️</div>
+        <h3 class="card-title justify-center mt-2">新しいプロジェクトを開始しますか？</h3>
+        <div class="mt-3 text-center">
+          <p class="text-sm text-muted leading-relaxed">
+            現在「<strong id="modal-confirm-active-title" class="text-cyan">進行中のプロジェクト</strong>」が存在します。<br>
+            新しいプロジェクトを開始すると、現在のプロジェクトは<strong>完了・アーカイブ</strong>され、過去の履歴として保存されます。
+          </p>
+        </div>
+        <div class="modal-actions-stacked mt-4">
+          <button type="button" id="btn-modal-confirm-new-project" class="btn btn-primary btn-large btn-glow">
+            ✅ 現在のPJを完了して新規開始
+          </button>
+          <button type="button" id="btn-modal-cancel-new-project" class="btn btn-ghost mt-2">
+            キャンセル（現在のPJを継続）
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- 種目マスター＆種目別休憩タイマー管理 -->
     <section class="card settings-card settings-accordion-card ${isExercisesCollapsed ? 'is-collapsed' : ''}" data-section-id="exercises">

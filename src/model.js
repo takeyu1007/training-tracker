@@ -11,25 +11,59 @@
 /** @typedef {'UP' | 'MAIN' | 'HEAVY' | 'DOWN'} SetType */
 /** @typedef {'胸' | '背中' | '脚' | '肩' | '腕' | '腹' | 'その他'} MuscleCategory */
 
+/** @typedef {'workout' | 'rest'} SessionType */
+/** @typedef {'active' | 'completed' | 'archived'} ProjectStatus */
+
 /**
- * ユーザープロファイル
+ * ユーザープロファイル（生涯不変の基本スペック）
  * @typedef {Object} UserProfile
  * @property {string} name
  * @property {number} height                 身長 (cm)
- * @property {number} currentWeight          現在体重 (kg)
- * @property {number} [startWeight]          開始時体重 (kg)
- * @property {number} targetWeight           目標体重 (kg)
- * @property {string} targetDate             目標達成予定日 (YYYY-MM-DD)
  * @property {Gender} gender                 性別
  * @property {number} age                    年齢
+ * @property {string[]} supplements          管理するサプリメント一覧
+ * @property {Record<SetType, number>} defaultRestSeconds セット種別ごとの既定インターバル（秒）
+ * @property {number} [currentWeight]        互換用・初期体重 (kg)
+ * @property {number} [startWeight]          互換用・開始時体重 (kg)
+ * @property {number} [targetWeight]         互換用・目標体重 (kg)
+ * @property {string} [targetDate]           互換用・目標達成予定日 (YYYY-MM-DD)
+ * @property {GoalType} [goalType]           互換用・目的
+ * @property {ActivityLevel} [activityLevel] 互換用・活動レベル
+ * @property {number} [targetCalories]       互換用・目標カロリー
+ * @property {number} [targetP]              互換用・目標P
+ * @property {number} [targetF]              互換用・目標F
+ * @property {number} [targetC]              互換用・目標C
+ */
+
+/**
+ * 日々の体重記録ログ
+ * @typedef {Object} BodyWeightLog
+ * @property {string} id
+ * @property {string} date                   記録日 (YYYY-MM-DD)
+ * @property {number} weight                 体重 (kg)
+ * @property {string} loggedAt               記録日時 (ISO 8601)
+ */
+
+/**
+ * 体重・増減量プロジェクト
+ * @typedef {Object} BodyProject
+ * @property {string} id
+ * @property {string} name                   プロジェクト名（例: "2026秋 リーンバルク"）
+ * @property {string} [title]                プロジェクト名（エイリアス）
+ * @property {string} [notes]                プロジェクト作戦・メモ
  * @property {GoalType} goalType             目的（減量 / 維持 / 増量）
  * @property {ActivityLevel} activityLevel   日常の活動レベル
+ * @property {string} startDate              開始日 (YYYY-MM-DD)
+ * @property {number} startWeight            開始時体重 (kg)
+ * @property {string} targetDate             目標達成予定日 (YYYY-MM-DD)
+ * @property {number} targetWeight           目標体重 (kg)
  * @property {number} targetCalories         目標総摂取カロリー (kcal)
  * @property {number} targetP                目標タンパク質 (g)
  * @property {number} targetF                目標脂質 (g)
  * @property {number} targetC                目標炭水化物 (g)
- * @property {string[]} supplements          管理するサプリメント一覧
- * @property {Record<SetType, number>} defaultRestSeconds セット種別ごとの既定インターバル（秒）
+ * @property {ProjectStatus} status          'active' | 'completed' | 'archived'
+ * @property {string} createdAt              作成日時 (ISO 8601)
+ * @property {string} [completedAt]          完了日時 (ISO 8601)
  */
 
 /**
@@ -48,10 +82,11 @@
  */
 
 /**
- * ワークアウトセッション
+ * ワークアウトセッション（トレ日または休息日）
  * @typedef {Object} WorkoutSession
  * @property {string} id
  * @property {string} date                   実施日 (YYYY-MM-DD)
+ * @property {SessionType} sessionType       'workout' (トレーニング) | 'rest' (休息日・リカバリー)
  * @property {string} startTime              開始日時 (ISO 8601)
  * @property {string | null} endTime         終了日時 (ISO 8601)
  * @property {number | null} bodyWeight      当日の体重 (kg)
@@ -59,7 +94,7 @@
  * @property {boolean} preWorkoutCarb        トレ前（1〜2時間前）のエネルギー/糖質補給有無
  * @property {number} conditionScore         主観的コンディション (1〜5)
  * @property {WorkoutSet[]} sets             実施セット一覧
- * @property {string} notes                  メモ・所感
+ * @property {string} notes                  メモ・所感・休養メモ
  */
 
 /**
@@ -111,6 +146,9 @@
  * @typedef {Object} AppData
  * @property {number} version
  * @property {UserProfile} profile
+ * @property {BodyProject | null} activeProject 進行中のプロジェクト
+ * @property {BodyProject[]} projects           過去のプロジェクト一覧
+ * @property {BodyWeightLog[]} weightLogs       体重ログ一覧
  * @property {WorkoutSession[]} workouts
  * @property {DailyNutrition[]} dailyNutrition
  * @property {RoutineItem[]} routines
@@ -257,6 +295,7 @@ export function createWorkoutSession(input = {}, now = new Date()) {
   return {
     id: newId(),
     date: input.date || dateStr,
+    sessionType: input.sessionType === 'rest' ? 'rest' : 'workout',
     startTime: input.startTime || now.toISOString(),
     endTime: input.endTime ?? null,
     bodyWeight: input.bodyWeight !== undefined && input.bodyWeight !== null ? Number(input.bodyWeight) : null,
@@ -267,6 +306,53 @@ export function createWorkoutSession(input = {}, now = new Date()) {
     conditionScore: Number(input.conditionScore) >= 1 && Number(input.conditionScore) <= 5 ? Number(input.conditionScore) : 4,
     sets: Array.isArray(input.sets) ? [...input.sets] : [],
     notes: typeof input.notes === 'string' ? input.notes.trim() : '',
+  };
+}
+
+/**
+ * @param {Partial<BodyProject>} [input]
+ * @param {Date} [now]
+ * @returns {BodyProject}
+ */
+export function createBodyProject(input = {}, now = new Date()) {
+  const todayStr = now.toISOString().slice(0, 10);
+  const startWeight = Number(input.startWeight) || 68.0;
+  const projectTitle = (input.name || input.title || '増量・減量プロジェクト').trim();
+  return {
+    id: input.id || newId(),
+    name: projectTitle,
+    title: projectTitle,
+    notes: input.notes !== undefined ? input.notes.trim() : '',
+    goalType: ['cut', 'maintain', 'bulk'].includes(input.goalType || '') ? /** @type {GoalType} */ (input.goalType) : 'cut',
+    activityLevel: ['sedentary', 'light', 'moderate', 'active'].includes(input.activityLevel || '')
+      ? /** @type {ActivityLevel} */ (input.activityLevel)
+      : 'moderate',
+    startDate: input.startDate || todayStr,
+    startWeight,
+    targetDate: input.targetDate || '',
+    targetWeight: Number(input.targetWeight) || 65.0,
+    targetCalories: Number(input.targetCalories) || 2100,
+    targetP: Number(input.targetP) || 140,
+    targetF: Number(input.targetF) || 50,
+    targetC: Number(input.targetC) || 250,
+    status: ['active', 'completed', 'archived'].includes(input.status || '') ? /** @type {ProjectStatus} */ (input.status) : 'active',
+    createdAt: input.createdAt || now.toISOString(),
+    completedAt: input.completedAt,
+  };
+}
+
+/**
+ * @param {string} date YYYY-MM-DD
+ * @param {number} weight
+ * @param {Date} [now]
+ * @returns {BodyWeightLog}
+ */
+export function createBodyWeightLog(date, weight, now = new Date()) {
+  return {
+    id: newId(),
+    date: date || now.toISOString().slice(0, 10),
+    weight: Math.round(Number(weight) * 10) / 10,
+    loggedAt: now.toISOString(),
   };
 }
 

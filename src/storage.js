@@ -10,6 +10,8 @@
 import {
   createProfile,
   createExerciseTemplate,
+  createBodyProject,
+  createBodyWeightLog,
   DEFAULT_EXERCISES,
   DEFAULT_SUPPLEMENTS,
   newId,
@@ -17,7 +19,7 @@ import {
 
 export const STORAGE_KEY = 'trainingTracker.data';
 export const BACKUP_KEY_PREFIX = 'trainingTracker.backup.';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * @typedef {Pick<Storage, 'getItem' | 'setItem'>} StorageLike
@@ -25,9 +27,27 @@ export const SCHEMA_VERSION = 3;
 
 /** @returns {import('./model.js').AppData} */
 export function emptyData() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const defaultProj = createBodyProject({
+    name: '減量・引き締めプロジェクト',
+    goalType: 'cut',
+    activityLevel: 'moderate',
+    startDate: todayStr,
+    startWeight: 68.0,
+    targetDate: '',
+    targetWeight: 65.0,
+    targetCalories: 2100,
+    targetP: 140,
+    targetF: 50,
+    targetC: 250,
+  });
+
   return {
     version: SCHEMA_VERSION,
     profile: createProfile(),
+    activeProject: defaultProj,
+    projects: [],
+    weightLogs: [createBodyWeightLog(todayStr, 68.0)],
     workouts: [],
     dailyNutrition: [],
     routines: [
@@ -94,6 +114,31 @@ function normalizeProfile(p) {
 }
 
 /**
+ * @param {any} proj
+ * @returns {import('./model.js').BodyProject | null}
+ */
+export function normalizeBodyProject(proj) {
+  if (!proj || typeof proj !== 'object' || typeof proj.id !== 'string') return null;
+  return createBodyProject(proj);
+}
+
+/**
+ * @param {any} wl
+ * @returns {import('./model.js').BodyWeightLog | null}
+ */
+export function normalizeBodyWeightLog(wl) {
+  if (!wl || typeof wl !== 'object' || typeof wl.id !== 'string') return null;
+  const w = Number(wl.weight);
+  if (!w || isNaN(w)) return null;
+  return {
+    id: wl.id,
+    date: typeof wl.date === 'string' ? wl.date : new Date().toISOString().slice(0, 10),
+    weight: Math.round(w * 10) / 10,
+    loggedAt: typeof wl.loggedAt === 'string' ? wl.loggedAt : new Date().toISOString(),
+  };
+}
+
+/**
  * @param {any} w
  * @returns {import('./model.js').WorkoutSession | null}
  */
@@ -102,6 +147,7 @@ function normalizeWorkout(w) {
   return {
     id: w.id,
     date: typeof w.date === 'string' ? w.date : new Date().toISOString().slice(0, 10),
+    sessionType: w.sessionType === 'rest' ? 'rest' : 'workout',
     startTime: typeof w.startTime === 'string' ? w.startTime : new Date().toISOString(),
     endTime: typeof w.endTime === 'string' ? w.endTime : null,
     bodyWeight: w.bodyWeight !== undefined && w.bodyWeight !== null ? Number(w.bodyWeight) : null,
@@ -261,6 +307,55 @@ export function migrate(raw) {
     };
   }
 
+  // v3 -> v4 移行 (activeProject, projects, weightLogs, sessionType の付与)
+  if (data.version === 3) {
+    const prof = data.profile || {};
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const startW = prof.startWeight !== undefined ? Number(prof.startWeight) : Number(prof.currentWeight) || 68.0;
+    const curW = Number(prof.currentWeight) || startW;
+
+    const initialProject = createBodyProject({
+      name: prof.goalType === 'cut' ? '減量・引き締めプロジェクト' : prof.goalType === 'bulk' ? 'バルクアッププロジェクト' : '体型維持プロジェクト',
+      goalType: prof.goalType || 'cut',
+      activityLevel: prof.activityLevel || 'moderate',
+      startDate: todayStr,
+      startWeight: startW,
+      targetDate: prof.targetDate || '',
+      targetWeight: Number(prof.targetWeight) || 65.0,
+      targetCalories: Number(prof.targetCalories) || 2100,
+      targetP: Number(prof.targetP) || 140,
+      targetF: Number(prof.targetF) || 50,
+      targetC: Number(prof.targetC) || 250,
+      status: 'active',
+    });
+
+    /** @type {import('./model.js').BodyWeightLog[]} */
+    const seededWeightLogs = [];
+    if (Array.isArray(data.workouts)) {
+      for (const w of data.workouts) {
+        if (w && w.bodyWeight && typeof w.date === 'string') {
+          seededWeightLogs.push(createBodyWeightLog(w.date, Number(w.bodyWeight), new Date(w.startTime || w.date)));
+        }
+      }
+    }
+    if (!seededWeightLogs.some((l) => l.date === todayStr)) {
+      seededWeightLogs.push(createBodyWeightLog(todayStr, curW));
+    }
+    seededWeightLogs.sort((a, b) => a.date.localeCompare(b.date));
+
+    data = {
+      ...data,
+      version: 4,
+      activeProject: initialProject,
+      projects: [],
+      weightLogs: seededWeightLogs,
+      workouts: (Array.isArray(data.workouts) ? data.workouts : []).map(/** @param {any} w */ (w) => ({
+        ...w,
+        sessionType: w?.sessionType || 'workout',
+      })),
+    };
+  }
+
   const rawTemplates = Array.isArray(data.exerciseTemplates) && data.exerciseTemplates.length > 0
     ? data.exerciseTemplates
     : DEFAULT_EXERCISES.map((e) => createExerciseTemplate(e.name, e.defaultRestSeconds, e.category));
@@ -268,6 +363,13 @@ export function migrate(raw) {
   return {
     version: SCHEMA_VERSION,
     profile: normalizeProfile(data.profile),
+    activeProject: normalizeBodyProject(data.activeProject),
+    projects: (Array.isArray(data.projects) ? data.projects : [])
+      .map(normalizeBodyProject)
+      .filter(/** @param {import('./model.js').BodyProject | null} p @returns {p is import('./model.js').BodyProject} */ (p) => p !== null),
+    weightLogs: (Array.isArray(data.weightLogs) ? data.weightLogs : [])
+      .map(normalizeBodyWeightLog)
+      .filter(/** @param {import('./model.js').BodyWeightLog | null} wl @returns {wl is import('./model.js').BodyWeightLog} */ (wl) => wl !== null),
     workouts: (Array.isArray(data.workouts) ? data.workouts : [])
       .map(normalizeWorkout)
       .filter(/** @param {import('./model.js').WorkoutSession | null} w @returns {w is import('./model.js').WorkoutSession} */ (w) => w !== null),

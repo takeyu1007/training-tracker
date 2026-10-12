@@ -18,6 +18,11 @@ import { showToast } from './toast.js';
 let storeInstance;
 /** @type {string | null} */
 let activeWorkoutId = null;
+/** @type {'workout' | 'rest'} */
+let currentDayMode = 'workout';
+let dayModeExplicitlySet = false;
+let restConditionScore = 4;
+let restSleepCategory = '7h+';
 
 /**
  * @param {import('../store.js').Store} store
@@ -35,18 +40,83 @@ function bindEvents() {
   container.addEventListener('click', (e) => {
     const target = /** @type {HTMLElement} */ (e.target);
 
+    // トレーニング日 / 休息日（OFF）の切り替え
+    const modeBtn = target.closest('.day-mode-btn');
+    if (modeBtn) {
+      const mode = /** @type {'workout' | 'rest'} */ (modeBtn.getAttribute('data-mode'));
+      if (mode === 'workout' || mode === 'rest') {
+        currentDayMode = mode;
+        dayModeExplicitlySet = true;
+        renderWorkout();
+      }
+      return;
+    }
+
     // ワークアウト開始
     if (target.closest('#btn-start-workout')) {
       const today = new Date().toISOString().slice(0, 10);
+      const starterWeightInput = /** @type {HTMLInputElement | null} */ (document.getElementById('starter-body-weight'));
+      const bw = Number(starterWeightInput?.value) || null;
+
       const session = storeInstance.addWorkout({
         date: today,
+        sessionType: 'workout',
         sleepCategory: '6-7h',
         preWorkoutCarb: true,
         conditionScore: 4,
+        bodyWeight: bw,
       });
       activeWorkoutId = session.id;
+      currentDayMode = 'workout';
+      dayModeExplicitlySet = true;
       showToast('ワークアウトを開始しました！集中していきましょう 💪', 'success');
       renderWorkout();
+      return;
+    }
+
+    // 休息日の保存
+    if (target.closest('#btn-save-rest-day')) {
+      const today = new Date().toISOString().slice(0, 10);
+      const restWeightInput = /** @type {HTMLInputElement | null} */ (document.getElementById('rest-body-weight'));
+      const restNotesInput = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('rest-notes'));
+      const bw = Number(restWeightInput?.value) || null;
+      const notes = restNotesInput?.value.trim() || '';
+
+      storeInstance.logRestDay({
+        date: today,
+        bodyWeight: bw,
+        sleepCategory: /** @type {any} */ (restSleepCategory),
+        conditionScore: restConditionScore,
+        notes,
+      });
+      showToast('🛋️ 本日の休息日（リカバリー）を記録しました！しっかり休養しましょう 👍', 'success');
+      renderWorkout();
+      return;
+    }
+
+    // 休息日 睡眠チップ選択
+    const restSleepChip = target.closest('.rest-sleep-chip');
+    if (restSleepChip) {
+      const cat = restSleepChip.getAttribute('data-sleep');
+      if (cat) {
+        restSleepCategory = cat;
+        document.querySelectorAll('.rest-sleep-chip').forEach((c) => c.classList.remove('is-selected'));
+        restSleepChip.classList.add('is-selected');
+      }
+      return;
+    }
+
+    // 休息日 体調スコア選択
+    const restScoreBtn = target.closest('.rest-condition-score-btn');
+    if (restScoreBtn) {
+      const score = Number(restScoreBtn.getAttribute('data-score')) || 4;
+      restConditionScore = score;
+      document.querySelectorAll('.rest-condition-score-btn').forEach((b) => {
+        const s = Number(b.getAttribute('data-score')) || 0;
+        b.classList.toggle('is-lit', s <= score);
+      });
+      const scoreText = document.getElementById('rest-cond-score-text');
+      if (scoreText) scoreText.textContent = `${score}/5`;
       return;
     }
 
@@ -150,7 +220,7 @@ function bindEvents() {
 
     // 体調スコア
     const condScoreBtn = target.closest('.condition-score-btn');
-    if (condScoreBtn && activeWorkoutId) {
+    if (condScoreBtn && activeWorkoutId && !condScoreBtn.classList.contains('rest-condition-score-btn')) {
       const score = Number(condScoreBtn.getAttribute('data-score')) || 4;
       storeInstance.updateWorkout(activeWorkoutId, { conditionScore: score });
       renderWorkout();
@@ -211,6 +281,23 @@ function bindEvents() {
     if (target.id === 'input-body-weight' && activeWorkoutId) {
       const bw = Number(/** @type {HTMLInputElement} */ (target).value);
       storeInstance.updateWorkout(activeWorkoutId, { bodyWeight: bw > 0 ? bw : null });
+      showToast(`当日体重 ${bw}kg を記録・更新しました`, 'info');
+    }
+    if (target.id === 'starter-body-weight') {
+      const bw = Number(/** @type {HTMLInputElement} */ (target).value);
+      if (bw > 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        storeInstance.logWeight(today, bw);
+        showToast(`当日体重 ${bw}kg を保存しました`, 'info');
+      }
+    }
+    if (target.id === 'rest-body-weight') {
+      const bw = Number(/** @type {HTMLInputElement} */ (target).value);
+      if (bw > 0) {
+        const today = new Date().toISOString().slice(0, 10);
+        storeInstance.logWeight(today, bw);
+        showToast(`当日体重 ${bw}kg を保存しました`, 'info');
+      }
     }
     // セット数変更で一括追加ボタンの文言更新
     if (target.id === 'input-set-count') {
@@ -236,6 +323,11 @@ function bindEvents() {
     }
     if (target.id === 'input-set-count') {
       updateBatchButtonText();
+    }
+    if (target.id === 'input-workout-notes' && activeWorkoutId) {
+      storeInstance.updateWorkout(activeWorkoutId, {
+        notes: /** @type {HTMLTextAreaElement} */ (target).value,
+      });
     }
   });
 }
@@ -486,26 +578,179 @@ export function renderWorkout() {
 
   const state = storeInstance.getState();
   const workouts = state.workouts;
+  const latestWeight = storeInstance.getLatestWeight();
 
-  // 現在アクティブなセッションを探す
+  const today = new Date().toISOString().slice(0, 10);
+  const todayRestSession = workouts.find((w) => w.date === today && w.sessionType === 'rest');
   let activeWorkout = activeWorkoutId ? workouts.find((w) => w.id === activeWorkoutId) : null;
   if (!activeWorkout) {
-    const today = new Date().toISOString().slice(0, 10);
-    activeWorkout = workouts.find((w) => w.date === today && !w.endTime) || null;
+    activeWorkout = workouts.find((w) => w.date === today && !w.endTime && w.sessionType !== 'rest') || null;
     activeWorkoutId = activeWorkout ? activeWorkout.id : null;
   }
 
-  // ワークアウト未開始の画面
+  // 自動初期判定（ユーザーが未操作の場合）
+  if (!dayModeExplicitlySet) {
+    if (todayRestSession && !activeWorkout) {
+      currentDayMode = 'rest';
+    } else {
+      currentDayMode = 'workout';
+    }
+  }
+
+  // 休息日のデフォルト値の同期
+  if (todayRestSession) {
+    restSleepCategory = todayRestSession.sleepCategory || '7h+';
+    restConditionScore = todayRestSession.conditionScore || 4;
+  }
+
+  // 最上部: トレーニング日 vs 休息日（OFF）の切り替えトグル
+  const toggleBarHtml = `
+    <div class="day-mode-toggle-bar">
+      <button type="button" class="btn day-mode-btn ${currentDayMode === 'workout' ? 'is-active' : ''}" data-mode="workout">
+        🏋️ トレーニング日
+      </button>
+      <button type="button" class="btn day-mode-btn ${currentDayMode === 'rest' ? 'is-active' : ''}" data-mode="rest">
+        🛋️ 休息日（OFF）
+      </button>
+    </div>
+  `;
+
+  // 1. 休息日モードの画面
+  if (currentDayMode === 'rest') {
+    const latestWorkout = workouts.find((w) => w.id !== todayRestSession?.id) || workouts[0];
+    container.innerHTML = `
+      ${toggleBarHtml}
+
+      <section class="card rest-day-card">
+        <div class="rest-day-header">
+          <span class="rest-hero-icon">🛋️</span>
+          <div>
+            <div class="flex-row items-center gap-2">
+              <h2 class="card-title">本日は休息日（リカバリー）</h2>
+              ${
+                todayRestSession
+                  ? '<span class="badge badge-success">✔ 本日記録済み</span>'
+                  : '<span class="badge badge-muted">未記録</span>'
+              }
+            </div>
+            <p class="text-muted text-sm mt-1">
+              筋肉の超回復と中枢神経を休め、次回のトレーニングに備えます。
+            </p>
+          </div>
+        </div>
+
+        <div class="rest-motivation-banner">
+          <span class="banner-icon">🌟</span>
+          <p>
+            「筋肉は休んでいる間に育つ」。しっかり睡眠とタンパク質・水分を補給し、超回復を促進しましょう！
+          </p>
+        </div>
+
+        <div class="rest-checkin-box mt-3">
+          <div class="condition-row">
+            <span class="condition-label">⚖️ 当日体重:</span>
+            <div class="input-with-unit-inline">
+              <input
+                type="number"
+                id="rest-body-weight"
+                class="input input-sm font-mono text-center"
+                step="0.1"
+                placeholder="例: 68.2"
+                value="${todayRestSession?.bodyWeight ?? latestWeight}"
+              >
+              <span class="unit">kg</span>
+            </div>
+          </div>
+
+          <div class="condition-row">
+            <span class="condition-label">💤 睡眠時間:</span>
+            <div class="chip-group">
+              ${['<5h', '5-6h', '6-7h', '7h+']
+                .map(
+                  (s) => `
+                <button
+                  type="button"
+                  class="chip rest-sleep-chip ${restSleepCategory === s ? 'is-selected' : ''}"
+                  data-sleep="${s}"
+                >
+                  ${s}
+                </button>
+              `,
+                )
+                .join('')}
+            </div>
+          </div>
+
+          <div class="condition-row">
+            <span class="condition-label">🎯 体調・回復度:</span>
+            <div class="score-stars">
+              ${[1, 2, 3, 4, 5]
+                .map(
+                  (num) => `
+                <button
+                  type="button"
+                  class="condition-score-btn rest-condition-score-btn ${restConditionScore >= num ? 'is-lit' : ''}"
+                  data-score="${num}"
+                >
+                  ★
+                </button>
+              `,
+                )
+                .join('')}
+              <span class="text-muted text-sm" id="rest-cond-score-text">${restConditionScore}/5</span>
+            </div>
+          </div>
+
+          <div class="form-group mt-3 text-left">
+            <label for="rest-notes">📝 休息・体調メモ（任意）</label>
+            <textarea
+              id="rest-notes"
+              class="input input-textarea"
+              rows="3"
+              placeholder="ストレッチ、入浴、軽い散歩、疲労度や筋肉痛の部位など..."
+            >${escapeHtml(todayRestSession?.notes || '')}</textarea>
+          </div>
+
+          <button type="button" id="btn-save-rest-day" class="btn btn-primary btn-large btn-glow mt-4">
+            💾 ${todayRestSession ? '休息日の記録を更新する' : '休息日として記録する'}
+          </button>
+        </div>
+      </section>
+
+      ${renderRecentWorkoutSummary(latestWorkout)}
+    `;
+    return;
+  }
+
+  // 2. トレーニング日モード（未開始画面）
   if (!activeWorkout) {
     const latestWorkout = workouts[0];
     container.innerHTML = `
+      ${toggleBarHtml}
+
       <section class="card session-starter-card">
         <div class="session-starter-header">
           <span class="icon-hero">🏋️</span>
           <h2>ワークアウトの開始</h2>
           <p class="text-muted">予定セットを一括セットし、予実を管理しながらトレーニングを進められます。</p>
         </div>
-        <button id="btn-start-workout" class="btn btn-primary btn-large btn-glow">
+
+        <div class="starter-weight-box">
+          <label for="starter-body-weight" class="font-bold text-sm">⚖️ 当日体重:</label>
+          <div class="input-with-unit-inline ml-2">
+            <input
+              type="number"
+              id="starter-body-weight"
+              class="input input-sm font-mono text-center"
+              step="0.1"
+              placeholder="例: 68.2"
+              value="${latestWeight}"
+            >
+            <span class="unit">kg</span>
+          </div>
+        </div>
+
+        <button id="btn-start-workout" class="btn btn-primary btn-large btn-glow mt-3">
           🔥 本日のワークアウトを開始する
         </button>
       </section>
@@ -515,7 +760,7 @@ export function renderWorkout() {
     return;
   }
 
-  // 進行中のワークアウト画面
+  // 3. トレーニング日モード（進行中のワークアウト画面）
   const actualVolume = calculateSessionVolume(activeWorkout.sets);
   const plannedVolume = calculatePlannedVolume(activeWorkout.sets);
   const completedSetsCount = activeWorkout.sets.filter((s) => s.isCompleted !== false).length;
@@ -523,6 +768,8 @@ export function renderWorkout() {
   const exerciseTemplates = state.exerciseTemplates;
 
   container.innerHTML = `
+    ${toggleBarHtml}
+
     <!-- ワークアウトヘッダー＆コンディション -->
     <section class="card workout-active-card">
       <div class="workout-header-row">
@@ -585,9 +832,20 @@ export function renderWorkout() {
         <div class="condition-row">
           <span class="condition-label">⚖️ 当日体重:</span>
           <div class="input-with-unit-inline">
-            <input type="number" id="input-body-weight" class="input input-sm" step="0.1" placeholder="例: 68.2" value="${activeWorkout.bodyWeight ?? ''}">
+            <input type="number" id="input-body-weight" class="input input-sm font-mono text-center" step="0.1" placeholder="例: 68.2" value="${activeWorkout.bodyWeight ?? latestWeight}">
             <span class="unit">kg</span>
           </div>
+        </div>
+
+        <!-- ワークアウト任意メモ欄 -->
+        <div class="condition-row workout-notes-row mt-2">
+          <span class="condition-label">📝 トレメモ:</span>
+          <textarea
+            id="input-workout-notes"
+            class="input input-textarea"
+            rows="2"
+            placeholder="意識したフォームの感覚、使用ギア（ベルト/リストラップ）、違和感やパンプ感など..."
+          >${escapeHtml(activeWorkout.notes || '')}</textarea>
         </div>
       </div>
     </section>
@@ -821,15 +1079,45 @@ export function renderWorkout() {
 }
 
 /**
- * 前回のワークアウトサマリーカード
+ * 前回のワークアウト／休息日サマリーカード
  * @param {import('../model.js').WorkoutSession} [latest]
  */
 function renderRecentWorkoutSummary(latest) {
   if (!latest) return '';
+
+  if (latest.sessionType === 'rest') {
+    return `
+      <section class="card recent-summary-card">
+        <div class="flex-row items-center gap-2 mb-2">
+          <h3 class="card-title">前回の記録 (${formatDate(latest.date)})</h3>
+          <span class="badge badge-rest">🛋️ 休息日</span>
+        </div>
+        <div class="summary-metrics">
+          <div class="metric-item">
+            <span class="metric-label">体重</span>
+            <span class="metric-value font-mono">${latest.bodyWeight ? `${latest.bodyWeight} kg` : '-'}</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">睡眠時間</span>
+            <span class="metric-value font-mono">${latest.sleepCategory}</span>
+          </div>
+          <div class="metric-item">
+            <span class="metric-label">体調・回復度</span>
+            <span class="metric-value">${'★'.repeat(latest.conditionScore)}${'☆'.repeat(5 - latest.conditionScore)}</span>
+          </div>
+        </div>
+        ${latest.notes ? `<p class="recent-notes-snippet text-xs text-muted mt-2">📝 ${escapeHtml(latest.notes)}</p>` : ''}
+      </section>
+    `;
+  }
+
   const vol = calculateSessionVolume(latest.sets);
   return `
     <section class="card recent-summary-card">
-      <h3 class="card-title">前回の記録 (${formatDate(latest.date)})</h3>
+      <div class="flex-row items-center gap-2 mb-2">
+        <h3 class="card-title">前回の記録 (${formatDate(latest.date)})</h3>
+        <span class="badge badge-primary">🏋️ ワークアウト</span>
+      </div>
       <div class="summary-metrics">
         <div class="metric-item">
           <span class="metric-label">実績ボリューム</span>
@@ -844,6 +1132,7 @@ function renderRecentWorkoutSummary(latest) {
           <span class="metric-value">${'★'.repeat(latest.conditionScore)}${'☆'.repeat(5 - latest.conditionScore)}</span>
         </div>
       </div>
+      ${latest.notes ? `<p class="recent-notes-snippet text-xs text-muted mt-2">📝 ${escapeHtml(latest.notes)}</p>` : ''}
     </section>
   `;
 }
